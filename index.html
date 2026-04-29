@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aprende Fácil | Constelación 3D de Aprendizaje</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="header">
+        <h1>Aprende Fácil: Constelación 3D de Aprendizaje</h1>
+        <div id="controls">
+            <button id="btn-connections" class="toggle-btn">Ver relaciones</button>
+            <button id="btn-reset" class="control-btn">Reiniciar vista</button>
+            <select id="filter-category" aria-label="Filtrar por categoría">
+                <option value="all">Todas las categorías</option>
+                <option value="concepto">Conceptos</option>
+                <option value="interfaz">Interfaces</option>
+                <option value="evaluacion">Evaluación</option>
+                <option value="accesibilidad">Accesibilidad</option>
+                <option value="gamificacion">Gamificación</option>
+            </select>
+            <input type="text" id="search-node" placeholder="Buscar concepto..." aria-label="Buscar concepto">
+        </div>
+    </div>
+
+    <div id="info-panel" class="hidden" aria-live="polite">
+        <button id="info-close" aria-label="Cerrar panel">&times;</button>
+        <h3 id="info-title"></h3>
+        <p id="info-year"></p>
+        <p id="info-summary"></p>
+        <p id="info-category"></p>
+        <button id="btn-chat" class="chat-btn">Conversar con este agente</button>
+    </div>
+
+    <div id="chat-panel" class="hidden" aria-live="polite">
+        <div id="chat-header">
+            <img id="chat-avatar" src="" alt="Avatar del agente">
+            <div>
+                <h3 id="chat-name"></h3>
+                <span id="chat-status">Agente disponible</span>
+            </div>
+            <button id="chat-close" aria-label="Cerrar chat">&times;</button>
+        </div>
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Pregunta sobre este concepto..." aria-label="Mensaje para el agente">
+            <button id="chat-send">Enviar</button>
+        </div>
+    </div>
+
+    <div id="api-key-modal" class="modal">
+        <div class="modal-content">
+            <h3>Configurar API Key de Gemini</h3>
+            <p>Para conversar con los agentes de aprendizaje, necesitas una API key de Google AI Studio.</p>
+            <p>Obtén una en: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com/app/apikey</a></p>
+            <input type="password" id="api-key-input" placeholder="Ingresa tu API key" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="btn-save-key">Guardar</button>
+                <button id="btn-skip-key" class="secondary">Omitir (solo visualización)</button>
+            </div>
+            <p style="font-size:0.8rem; margin-top:12px;">La clave se guarda solo en localStorage del navegador. No debe subirse al repositorio.</p>
+        </div>
+    </div>
+
+    <div id="legend">
+        <h4>Categorías</h4>
+        <div class="legend-item"><span class="dot" style="background:#3498db"></span> Conceptos</div>
+        <div class="legend-item"><span class="dot" style="background:#2ecc71"></span> Interfaces</div>
+        <div class="legend-item"><span class="dot" style="background:#f39c12"></span> Evaluación</div>
+        <div class="legend-item"><span class="dot" style="background:#9b59b6"></span> Accesibilidad</div>
+        <div class="legend-item"><span class="dot" style="background:#e74c3c"></span> Gamificación</div>
+    </div>
+
+    <div id="canvas-container"></div>
+    <div id="tooltip" class="hidden"></div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

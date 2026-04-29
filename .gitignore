@@ -1,0 +1,14 @@
+# API keys and local config
+.env
+config.js
+*.key
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Dependencies/builds if added later
+node_modules/
+dist/
+build/
