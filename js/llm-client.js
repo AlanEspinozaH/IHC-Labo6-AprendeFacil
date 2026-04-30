@@ -3,7 +3,7 @@
 // ============================================
 
 export class LLMClient {
-    constructor(apiKey, modelName = 'gemini-2.0-flash') {
+    constructor(apiKey, modelName = 'gemini-2.5-flash-lite') {
         this.apiKey = apiKey;
         this.modelName = modelName;
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';

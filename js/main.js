@@ -474,44 +474,69 @@ class LearningConstellationsApp {
         });
     }
 
+    getMainNodeFromIntersection(object) {
+       let current = object;
+
+       while (current) {
+          if (this.nodes.includes(current)) {
+            return current;
+          }
+        current = current.parent;
+       }
+
+       return null;
+    }
+
     onMouseMove(event) {
-        const rect = this.renderer.domElement.getBoundingClientRect();
-        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+       const rect = this.renderer.domElement.getBoundingClientRect();
+       this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+       this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.nodes);
+       this.raycaster.setFromCamera(this.mouse, this.camera);
+       const intersects = this.raycaster.intersectObjects(this.nodes, true);
 
-        const tooltip = document.getElementById('tooltip');
+       const tooltip = document.getElementById('tooltip');
 
-        if (intersects.length > 0) {
-            const node = intersects[0].object;
-            const data = node.userData;
+       if (intersects.length > 0) {
+          const node = this.getMainNodeFromIntersection(intersects[0].object);
 
-            // Hover effect
-            if (this.hoveredNode !== node) {
-                this.unhoverNode();
-                this.hoverNode(node);
-                this.hoveredNode = node;
-            }
-
-            // Tooltip
-            tooltip.classList.remove('hidden');
-            tooltip.innerHTML = `
-                <div class="tooltip-name">${data.nombre}</div>
-                <div class="tooltip-year">Paso ${data.orden} · ${data.nivel || "general"}</div>
-                <div class="tooltip-summary">${data.resumen.substring(0, 100)}...</div>
-            `;
-            tooltip.style.left = (event.clientX + 15) + 'px';
-            tooltip.style.top = (event.clientY + 15) + 'px';
-
-            this.renderer.domElement.style.cursor = 'pointer';
-        } else {
-            this.unhoverNode();
-            this.hoveredNode = null;
+          if (!node || !node.userData) {
             tooltip.classList.add('hidden');
             this.renderer.domElement.style.cursor = 'default';
-        }
+            return;
+          }
+
+          const data = node.userData;
+
+          if (this.hoveredNode !== node) {
+              this.unhoverNode();
+              this.hoverNode(node);
+              this.hoveredNode = node;
+          }
+
+          const resumen = data.resumen || 'Sin resumen disponible';
+          const nombre = data.nombre || 'Nodo sin nombre';
+          const orden = data.orden ?? 'N/D';
+          const nivel = data.nivel || 'general';
+ 
+          tooltip.classList.remove('hidden');
+          tooltip.innerHTML = `
+            <div class="tooltip-name">${nombre}</div>
+            <div class="tooltip-year">Paso ${orden} · ${nivel}</div>
+            <div class="tooltip-summary">${resumen.substring(0, 100)}...</div>
+          `;
+
+          tooltip.style.left = (event.clientX + 15) + 'px';
+          tooltip.style.top = (event.clientY + 15) + 'px';
+
+          this.renderer.domElement.style.cursor = 'pointer';
+       } else {
+          this.unhoverNode();
+          this.hoveredNode = null;
+          tooltip.classList.add('hidden');
+          this.renderer.domElement.style.cursor = 'default';
+       }
+
     }
 
     hoverNode(node) {
@@ -545,21 +570,25 @@ class LearningConstellationsApp {
     }
 
     onClick(event) {
-        const rect = this.renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((event.clientX - rect.left) / rect.width) * 2 - 1,
-            -((event.clientY - rect.top) / rect.height) * 2 + 1
-        );
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
 
-        this.raycaster.setFromCamera(mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.nodes);
+      this.raycaster.setFromCamera(mouse, this.camera);
+      const intersects = this.raycaster.intersectObjects(this.nodes, true);
 
-        if (intersects.length > 0) {
-            const selectedNode = intersects[0].object;
+      if (intersects.length > 0) {
+        const selectedNode = this.getMainNodeFromIntersection(intersects[0].object);
+
+        if (selectedNode) {
             this.selectNode(selectedNode);
-        } else {
-            this.deselectNode();
         }
+      } else {
+        this.deselectNode();
+      }
+
     }
 
     selectNode(node) {
@@ -575,10 +604,9 @@ class LearningConstellationsApp {
         document.getElementById('info-summary').textContent = data.resumen;
 
         const catEl = document.getElementById('info-category');
-        catEl.textContent = data.categoria.toUpperCase();
+        catEl.textContent = (data.categoria || 'sin categoria').toUpperCase();
         catEl.style.background = '#' + this.getCategoryColor(data.categoria).toString(16).padStart(6, '0') + '33';
         catEl.style.color = '#' + this.getCategoryColor(data.categoria).toString(16).padStart(6, '0');
-
         // Configurar botón de chat
         const chatBtn = document.getElementById('btn-chat');
         if (data.prompt_personaje) {

@@ -51,20 +51,33 @@ Cada prompt incluye reglas de comportamiento, límites de alcance y estilo de co
 
 El proyecto usa ES6 Modules, por lo que debe abrirse con un servidor HTTP local.
 
-### Opción 1: Python
+### Opción 1 (Windows 11): Python
 
 ```bash
-cd aprende-facil-lab06-corregido
+cd ubicación-del-proyecto
 python -m http.server 8080
 ```
 
-Luego abrir:
+Luego abrir el navegador y pegar esta url:
 
 ```text
 http://localhost:8080
 ```
 
-### Opción 2: VS Code + Live Server
+### Opción 2 (distri. Linux - Ubuntu): Python3
+
+```bash
+cd ubicación-del-proyecto
+python3 -m http.server 8080 --bind 127.0.0.1
+```
+
+Luego abrir un navegador web y poner esta url:
+
+```text
+http://127.0.0.1:8080
+```
+
+### Opción 3: VS Code + Live Server
 
 1. Abrir la carpeta del proyecto en VS Code.
 2. Instalar la extensión **Live Server**.
@@ -73,7 +86,7 @@ http://localhost:8080
 
 ## API Key de Gemini
 
-Al abrir la aplicación, aparecerá un modal para ingresar la API key de Gemini. La clave se guarda en `localStorage` del navegador y no se sube al repositorio.
+Al abrir la aplicación, aparecerá un modal para ingresar la API key de Gemini. Es importante seleccionar "*Guardar* la api" si se quiere probar el modelo.  La clave se guarda en `localStorage` del navegador y no se sube al repositorio.
 
 No subas claves reales a GitHub.
 
@@ -95,6 +108,3 @@ aprende-facil-lab06-corregido/
 └── README.md
 ```
 
-## Nota académica
-
-Este laboratorio no reemplaza el diseño principal de Aprende Fácil. Es una adaptación experimental para cumplir el laboratorio de constelaciones 3D usando el tema del proyecto.
