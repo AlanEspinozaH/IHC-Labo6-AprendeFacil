@@ -51,6 +51,18 @@
             <button id="chat-close" aria-label="Cerrar chat">&times;</button>
         </div>
         <div id="chat-messages"></div>
+        <div id="chat-tools">
+           <label for="temperature-select">Temperatura:</label>
+           <select id="temperature-select" aria-label="Temperatura del agente">
+               <option value="0">0.0 Preciso</option>
+               <option value="0.5">0.5 Equilibrado</option>
+               <option value="1" selected>1.0 Creativo</option>
+               <option value="1.5">1.5 Muy creativo</option>
+           </select>
+
+        <button id="btn-speak-last" type="button">🔊 Leer</button>
+        <button id="btn-voice-input" type="button">🎙️ Dictar</button>
+        </div>
         <div id="chat-input-area">
             <input type="text" id="chat-input" placeholder="Pregunta sobre este concepto..." aria-label="Mensaje para el agente">
             <button id="chat-send">Enviar</button>

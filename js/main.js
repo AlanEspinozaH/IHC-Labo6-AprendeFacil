@@ -55,6 +55,8 @@ class LearningConstellationsApp {
         this.hoveredNode = null;
         this.selectedNode = null;
         this.animationTime = 0;
+        this.currentTemperature = 1.0;
+        this.lastAgentResponse = '';
 
         this.init();
     }
@@ -655,6 +657,20 @@ class LearningConstellationsApp {
     // UI CONTROLES
     // ============================================
     setupUI() {
+        const temperatureSelect = document.getElementById('temperature-select');
+        if (temperatureSelect) {
+            temperatureSelect.addEventListener('change', (e) => {
+                this.currentTemperature = Number(e.target.value);
+                if (this.llm) {
+                    this.llm.setTemperature(this.currentTemperature);
+                }
+                this.addMessage(
+                    'system',
+                    `Temperatura ajustada a ${this.currentTemperature.toFixed(1)}.`
+                );
+            });
+        }
+
         // Botón de conexiones
         document.getElementById('btn-connections').addEventListener('click', (e) => {
             this.showAllConnections = !this.showAllConnections;
@@ -793,6 +809,11 @@ class LearningConstellationsApp {
     async sendChatMessage() {
         const input = document.getElementById('chat-input');
         const text = input.value.trim();
+        const response = await this.llm.chat(
+            text,
+            this.currentAgent.prompt_personaje,
+            this.currentTemperature
+);
 
         if (!text || !this.currentAgent) return;
 
@@ -881,11 +902,62 @@ class LearningConstellationsApp {
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
     }
+
+
+    async runTemperatureExperiment(agentId = 'interfaz-voz') {
+        if (!this.llm || !this.apiKey) {
+           alert('Primero configura la API key de Gemini.');
+           return;
+        }
+
+        const agent = learningData.events.find(event => event.id === agentId);
+
+        if (!agent) {
+           console.error(`No se encontró el agente con id: ${agentId}`);
+           return;
+        }
+
+        const testPrompt = 'Explícame cómo una interfaz de voz puede ayudar a un estudiante dentro de Aprende Fácil. Responde en máximo 5 líneas.';
+
+        const temperatures = [0.0, 0.5, 1.0, 1.5];
+        const results = [];
+
+        for (const temp of temperatures) {
+           const start = performance.now();
+
+           const response = await this.llm.chatOneShot(
+              testPrompt,
+              agent.prompt_personaje,
+              temp
+            );
+
+           const durationMs = Math.round(performance.now() - start);
+
+           results.push({
+              temperatura: temp,
+              respuesta: response,
+              caracteres: response.length,
+              tiempo_ms: durationMs
+           });
+        }
+
+        console.table(
+           results.map(item => ({
+              temperatura: item.temperatura,
+              caracteres: item.caracteres,
+              tiempo_ms: item.tiempo_ms,
+              muestra: item.respuesta.slice(0, 120) + '...'
+           }))
+        );
+
+        return results;
+    }
+
 }
 
 // ============================================
 // INICIALIZACIÓN
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    new LearningConstellationsApp();
+    window.app = new LearningConstellationsApp();
 });

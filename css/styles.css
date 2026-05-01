@@ -229,6 +229,49 @@ body {
     box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
 }
 
+#chat-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    font-size: 0.8rem;
+}
+
+#chat-tools label {
+    color: #ccc;
+}
+
+#temperature-select {
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.08);
+    color: #e0e0e0;
+}
+
+#temperature-select option {
+    background: #1a1f4b;
+    color: #e0e0e0;
+}
+
+#btn-speak-last,
+#btn-voice-input {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.08);
+    color: #e0e0e0;
+    cursor: pointer;
+}
+
+#btn-speak-last:hover,
+#btn-voice-input:hover {
+    background: rgba(255,255,255,0.15);
+}
+
+
 /* ===== CHAT PANEL ===== */
 #chat-panel {
     position: fixed;
