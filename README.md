@@ -88,7 +88,14 @@ http://127.0.0.1:8080
 
 Al abrir la aplicación, aparecerá un modal para ingresar la API key de Gemini. Es importante seleccionar "*Guardar* la api" si se quiere probar el modelo.  La clave se guarda en `localStorage` del navegador y no se sube al repositorio.
 
-No subas claves reales a GitHub.
+### Comando para pruebas de temperaturas
+
+En el navegador presionar f12 y luego en *consola* digitar este codigo para realizar
+pruebas a un mismo prompt modificando la temperatura (0.0 , 0.5 , 1 y 1.5)
+
+```text
+await app.runTemperatureExperiment('interfaz-voz')
+```
 
 ## Estructura del proyecto
 

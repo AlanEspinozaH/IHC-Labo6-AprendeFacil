@@ -422,3 +422,364 @@ Esta incidencia puede describirse así:
 [1]: https://docs.python.org/3/library/http.server.html "http.server — HTTP servers — Python 3.14.4 documentation"
 [2]: https://ai.google.dev/gemini-api/docs/rate-limits "Rate limits  |  Gemini API  |  Google AI for Developers"
 [3]: https://ai.google.dev/gemini-api/docs/models/gemini-2.0-flash "Gemini 2.0 Flash  |  Gemini API  |  Google AI for Developers"
+
+
+```markdown
+---
+
+## 17. Mejora: selector de temperatura para el agente LLM
+
+Se agregó un selector de temperatura en el panel de chat para controlar el comportamiento del modelo. Los valores disponibles son:
+
+| Valor | Etiqueta       |
+|------:|----------------|
+|   0.0 | Preciso        |
+|   0.5 | Equilibrado    |
+|   1.0 | Creativo       |
+|   1.5 | Muy creativo   |
+
+### Implementación clave
+
+La temperatura se almacena en la instancia de la app y se actualiza al cambiar el selector:
+
+```js
+temperatureSelect.addEventListener('change', (e) => {
+    this.currentTemperature = Number(e.target.value);
+    if (this.llm) this.llm.setTemperature(this.currentTemperature);
+    this.addMessage('system', `Temperatura ajustada a ${this.currentTemperature.toFixed(1)}.`);
+});
+```
+
+Al enviar un mensaje, la temperatura se pasa explícitamente al modelo:
+
+```js
+const response = await this.llm.chat(text, this.currentAgent.prompt_personaje, this.currentTemperature);
+```
+
+### Teoría
+
+La temperatura controla la variabilidad de las respuestas del modelo. Un valor bajo produce salidas más deterministas y conservadoras; un valor alto produce salidas más diversas y creativas, pero potencialmente menos controladas.
+
+**Para agentes educativos:**
+
+| Temperatura | Comportamiento                               | Uso recomendado                                     |
+|------------:|----------------------------------------------|-----------------------------------------------------|
+|         0.0 | Estable, directo, predecible                 | Definiciones, instrucciones, explicaciones precisas |
+|         0.5 | Equilibrio entre precisión y naturalidad     | Tutoría académica general                           |
+|         1.0 | Mayor variación, ejemplos más diversos       | Exploración de ideas, recomendaciones               |
+|         1.5 | Creativo, menos predecible                   | Lluvia de ideas, propuestas alternativas            |
+
+> **Nota importante:** La temperatura debe probarse desde la interfaz web del prototipo, no solo desde Google AI Studio. Solo así la prueba es válida para el contexto de la aplicación.
+
+---
+
+## 18. Mejora: función de experimentación con temperaturas
+
+Se implementó una función auxiliar que ejecuta la misma pregunta con cuatro temperaturas distintas y registra los resultados:
+
+```js
+await app.runTemperatureExperiment('interfaz-voz')
+```
+
+La función prueba `[0.0, 0.5, 1.0, 1.5]` y guarda por cada iteración:
+
+- temperatura usada
+- respuesta generada
+- cantidad de caracteres
+- tiempo de respuesta
+- error, si ocurre
+
+Los resultados se imprimen con `console.table(...)` en DevTools.
+
+### Acceso desde consola
+
+La instancia principal se expone globalmente para facilitar pruebas durante el desarrollo:
+
+```js
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new LearningConstellationsApp();
+});
+```
+
+Esto permite ejecutar métodos internos desde DevTools sin agregar botones a la interfaz.
+
+> **Advertencia:** Exponer `window.app` es útil en desarrollo y aceptable para entregas académicas locales, pero debe evitarse en producción.
+
+> **Cuota:** Cada ejecución del experimento consume cuatro llamadas a la API (una por temperatura). Ejecutar solo las veces necesarias y documentar los resultados obtenidos.
+
+---
+
+## 19. Incidencia: llamada automática a Gemini al abrir el chat
+
+En una versión intermedia, al abrir el panel de chat se disparaba una llamada automática al modelo para que el agente se presentara:
+
+```js
+this.llm.chatOneShot("Preséntate brevemente...", agentData.prompt_personaje, 0.7)
+```
+
+Esto consumía cuota innecesariamente en cada apertura de nodo, antes de que el usuario escribiera cualquier pregunta.
+
+### Solución
+
+Se reemplazó el mensaje generado por Gemini por un mensaje local estático:
+
+```js
+this.addMessage('character', `Hola, soy ${agentData.nombre}. Escribe una pregunta para iniciar la conversación.`);
+```
+
+### Principio aprendido
+
+Distinguir siempre entre tres tipos de mensajes en aplicaciones con IA:
+
+1. **Mensajes locales de interfaz** → se generan sin llamada a la API
+2. **Mensajes generados por el modelo** → requieren llamada a la API
+3. **Eventos que realmente necesitan razonamiento** → única justificación para consumir cuota
+
+Si el mensaje no requiere razonamiento, debe generarse localmente. Esto reduce costos, mejora la velocidad de respuesta y evita alcanzar límites de cuota por acciones triviales.
+
+---
+
+## 20. Incidencia: llamadas duplicadas al enviar mensajes
+
+Se detectó que `sendChatMessage()` podía enviar más de una solicitud al modelo por cada pregunta del usuario. El problema era una llamada a `this.llm.chat(...)` antes de la validación del texto, además de la llamada correcta dentro del bloque `try`.
+
+**Consecuencias:**
+- consumo duplicado de cuota
+- respuestas repetidas en el chat
+- errores 429 más frecuentes
+- dificultad para depurar
+
+### Solución: flujo correcto de `sendChatMessage()`
+
+```js
+async sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send');
+    const text = input.value.trim();
+
+    if (!text || !this.currentAgent) return; // 1. Validar primero
+
+    this.addMessage('user', text);           // 2. Mostrar mensaje del usuario
+    input.value = '';
+
+    input.disabled = true;                   // 3. Bloquear interfaz
+    sendBtn.disabled = true;
+
+    this.addMessage('loading', 'Escribiendo...');
+
+    try {
+        const response = await this.llm.chat( // 4. Una sola llamada al modelo
+            text,
+            this.currentAgent.prompt_personaje,
+            this.currentTemperature
+        );
+
+        document.querySelector('#chat-messages .loading')?.remove();
+        this.lastAgentResponse = response;
+        this.addMessage('character', response);
+
+    } catch (error) {
+        document.querySelector('#chat-messages .loading')?.remove();
+        this.addMessage('error', `Error: ${error.message}. Si aparece 429, espere antes de reenviar.`);
+
+    } finally {
+        input.disabled = false;              // 5. Restaurar interfaz siempre
+        sendBtn.disabled = false;
+        input.focus();
+    }
+}
+```
+
+### Principio aprendido
+
+En funciones `async`, cualquier `await` antes de una validación puede ejecutar lógica costosa innecesariamente. Al trabajar con APIs externas, cada llamada cuenta para cuota, latencia y errores. **Validar primero, llamar después.**
+
+---
+
+## 21. Mejora: bloqueo del input durante la espera de respuesta
+
+Mientras el modelo procesa la respuesta, se deshabilitan el campo de texto y el botón de envío:
+
+```js
+input.disabled = true;
+sendBtn.disabled = true;
+```
+
+Se reactivan en el bloque `finally` para garantizar que siempre se restauren, incluso si ocurre un error:
+
+```js
+finally {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+}
+```
+
+El evento de teclado se actualizó de `keypress` a `keydown`, con validación del estado del input:
+
+```js
+document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.target.disabled) {
+        this.sendChatMessage();
+    }
+});
+```
+
+### Principio de IHC aplicado
+
+Desactivar controles durante operaciones asíncronas comunica el estado del sistema al usuario, evita envíos accidentales por doble clic o tecla repetida, y reduce errores de cuota. La interfaz debe prevenir errores del usuario, no solo reaccionar a ellos.
+
+---
+
+## 22. Mejora: lectura en voz alta de respuestas del agente
+
+Se implementó el botón **Leer** para reproducir la última respuesta del agente usando la Web Speech API del navegador.
+
+La respuesta se guarda al recibirla:
+
+```js
+this.lastAgentResponse = response;
+```
+
+### Implementación de `speakText()`
+
+```js
+speakText(text) {
+    if (!('speechSynthesis' in window)) {
+        this.addMessage('error', 'Este navegador no soporta lectura en voz alta.');
+        return;
+    }
+    if (!text?.trim()) {
+        this.addMessage('system', 'No hay texto disponible para leer.');
+        return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const spanishVoice = voices.find(v => v.lang.startsWith('es'));
+
+    if (spanishVoice) {
+        utterance.voice = spanishVoice;
+        utterance.lang = spanishVoice.lang;
+    }
+
+    window.speechSynthesis.speak(utterance);
+}
+```
+
+### Incidencia encontrada
+
+Al probar el botón, inicialmente no se escuchaba audio. El problema no estaba en el código: el navegador Brave tenía restringida la reproducción del sitio. Tras ajustar los permisos, la función funcionó correctamente.
+
+### La síntesis de voz del navegador depende de tres factores
+
+1. Soporte del navegador para la API `speechSynthesis`
+2. Voces instaladas o disponibles en el sistema operativo
+3. Permisos y configuración del sitio en el navegador
+
+Una función puede estar correctamente implementada y aun así no producir audio. En Linux, la voz suele sonar más robótica; en otros entornos puede haber voces más naturales.
+
+### Relevancia en IHC
+
+Esta mejora aporta accesibilidad multimodal: apoya estudio auditivo, baja visión, fatiga visual y distintas preferencias de aprendizaje.
+
+---
+
+## 23. Mejora: optimización del prompt del agente
+
+Se mejoró el prompt del nodo **Interfaz de voz** para hacerlo más específico y evaluable. La versión mejorada incluye:
+
+- contexto explícito del proyecto (Aprende Fácil)
+- alcance estricto del agente
+- límites técnicos del prototipo (qué no debe prometer)
+- criterios de IHC aplicables
+- reglas de accesibilidad
+- formato recomendado de respuesta
+- estilo de comunicación esperado
+
+### Por qué importa en aplicaciones con agentes LLM
+
+Un prompt de sistema no solo define "quién es" el agente. Debe especificar:
+
+| Aspecto            | Pregunta que responde                          |
+|--------------------|------------------------------------------------|
+| Conocimiento       | ¿Qué sabe?                                     |
+| Límites            | ¿Qué no debe asumir ni prometer?               |
+| Comportamiento     | ¿Cómo debe responder?                          |
+| Formato            | ¿Qué estructura debe seguir?                   |
+| Criterios          | ¿Qué priorizar al generar respuestas?          |
+
+En aplicaciones de IHC, el comportamiento conversacional del agente **es parte de la interfaz**. Un agente mal delimitado puede confundir al usuario, exagerar capacidades del sistema o desviarse del objetivo del prototipo.
+
+---
+
+## 24. Decisión técnica: respuestas del chat en texto plano
+
+Las respuestas del modelo pueden incluir Markdown (`**negrita**`, listas, `código`). Se evaluó renderizarlo en el chat, pero se decidió mantener texto plano:
+
+```js
+msgDiv.textContent = text; // Para respuestas del modelo
+```
+
+Solo los mensajes internos del sistema usan HTML controlado:
+
+```js
+if (type === 'system') {
+    msgDiv.innerHTML = text;
+} else {
+    msgDiv.textContent = text;
+}
+```
+
+### Motivo
+
+Insertar HTML generado por el modelo directamente en la interfaz sin sanitización es un riesgo de seguridad. Renderizar Markdown requeriría una librería externa y un proceso de sanitización. Para una entrega académica, texto plano es una decisión simple, estable y completamente defendible.
+
+> En una versión futura, se podría integrar una librería como `marked.js` con `DOMPurify` para renderizar Markdown de forma segura.
+
+---
+
+## 25. Incidencia: exposición accidental de API key en consola
+
+Durante la depuración, la URL completa de solicitud a Gemini aparecía en la consola del navegador, incluyendo el parámetro `?key=...`.
+
+### Medidas ante una exposición accidental
+
+1. Revocar la clave inmediatamente desde Google AI Studio
+2. Generar una nueva clave
+3. Limpiar capturas de pantalla, logs o documentos donde aparezca
+4. No subir logs con URLs completas al repositorio
+
+### Principio aprendido
+
+Guardar la API key en `localStorage` es aceptable para pruebas locales, pero no es una solución segura para producción. En un sistema real, las llamadas al modelo deben pasar por un **backend o proxy** que proteja la clave y controle el uso. El cliente nunca debe tener acceso directo a credenciales de servicios externos.
+
+---
+
+## 26. Estado del prototipo tras las correcciones
+
+| Componente                          | Estado                                               |
+|-------------------------------------|------------------------------------------------------|
+| Carga desde servidor local          | ✅ Correcta                                           |
+| Constelación 3D                     | ✅ Nodos, etiquetas, halos y relaciones visibles      |
+| Raycasting                          | ✅ Selecciona correctamente el nodo principal         |
+| Panel de información                | ✅ Se abre al seleccionar un nodo                     |
+| Apertura del chat                   | ✅ No consume cuota de Gemini al abrirse              |
+| Envío de mensajes                   | ✅ Una sola llamada al modelo por mensaje             |
+| Selector de temperatura             | ✅ Modifica la configuración usada en la llamada      |
+| Función de experimentación          | ✅ Compara respuestas con temperaturas 0.0–1.5        |
+| Lectura en voz alta                 | ✅ Reproduce la última respuesta del agente           |
+| Prompt de "Interfaz de voz"         | ✅ Mejorado con contexto, límites y criterios claros  |
+
+### Conclusión
+
+La mayor parte de las incidencias no fueron errores aislados, sino problemas típicos de integración entre frontend, WebGL, servicios externos y navegador. La depuración permitió distinguir claramente entre:
+
+- errores de selección de objetos 3D
+- errores de estado de interfaz (doble envío, bloqueo de input)
+- errores de configuración de API key
+- errores externos por cuota (429)
+- restricciones propias del navegador
+
+Esta separación fue clave para corregir el proyecto sin confundir problemas de frontend con limitaciones del servicio Gemini o del navegador.
+```

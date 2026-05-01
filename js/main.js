@@ -57,6 +57,7 @@ class LearningConstellationsApp {
         this.animationTime = 0;
         this.currentTemperature = 1.0;
         this.lastAgentResponse = '';
+        this.isListening = false;
 
         this.init();
     }
@@ -671,6 +672,27 @@ class LearningConstellationsApp {
             });
         }
 
+        // boton leer
+        const speakBtn = document.getElementById('btn-speak-last');
+        if (speakBtn) {
+            speakBtn.addEventListener('click', () => {
+                if (!this.lastAgentResponse) {
+                    this.addMessage('system', 'Todavía no hay una respuesta del agente para leer.');
+                    return;
+                }
+
+                this.speakText(this.lastAgentResponse);
+            });
+        }
+
+        // boton del dictado
+        const voiceBtn = document.getElementById('btn-voice-input');
+        if (voiceBtn) {
+            voiceBtn.addEventListener('click', () => {
+                this.startVoiceInput();
+            });
+        }
+
         // Botón de conexiones
         document.getElementById('btn-connections').addEventListener('click', (e) => {
             this.showAllConnections = !this.showAllConnections;
@@ -711,9 +733,18 @@ class LearningConstellationsApp {
             this.sendChatMessage();
         });
 
-        document.getElementById('chat-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.sendChatMessage();
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.target.disabled) {
+            this.sendChatMessage();
+            }
         });
+
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                console.log('Voces disponibles:', window.speechSynthesis.getVoices());
+            };
+        }
+
     }
 
     filterByCategory(category) {
@@ -773,47 +804,45 @@ class LearningConstellationsApp {
         }
 
         this.currentAgent = agentData;
+        this.lastAgentResponse = '';
         this.llm.clearHistory();
 
         const chatPanel = document.getElementById('chat-panel');
         const avatar = document.getElementById('chat-avatar');
         const name = document.getElementById('chat-name');
         const messages = document.getElementById('chat-messages');
+        const input = document.getElementById('chat-input');
+        const temperatureSelect = document.getElementById('temperature-select');
 
         avatar.src = agentData.avatar;
         avatar.alt = agentData.nombre;
         name.textContent = `${agentData.nombre} · ${agentData.nivel || 'Agente'}`;
 
         messages.innerHTML = '';
-        this.addMessage('system', `Estás conversando con **${agentData.nombre}**. ${agentData.resumen}`);
+        
+        this.addMessage(
+            'system', 
+            `Estás conversando con <strong>${agentData.nombre}</strong>. ${agentData.resumen}`);
+
+        this.addMessage(
+             'character',
+             `Hola, soy ${agentData.nombre}. Escribe una pregunta para iniciar la conversación.`
+        );
+
+        if (temperatureSelect) {
+            temperatureSelect.value = String(this.currentTemperature);
+        }
 
         chatPanel.classList.remove('hidden');
-
-        // Mensaje de bienvenida del agente
-        this.addMessage('loading', 'El agente está preparándose...');
-        this.llm.chatOneShot(
-            "Preséntate brevemente (máximo 2 oraciones) como agente de Aprende Fácil y explica cómo puedes ayudar con este concepto.",
-            agentData.prompt_personaje,
-            0.7
-        ).then(response => {
-            const loading = messages.querySelector('.loading');
-            if (loading) loading.remove();
-            this.addMessage('character', response);
-        }).catch(err => {
-            const loading = messages.querySelector('.loading');
-            if (loading) loading.remove();
-            this.addMessage('error', `Error: ${err.message}`);
-        });
+        input.focus();
     }
 
     async sendChatMessage() {
         const input = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('chat-send');
         const text = input.value.trim();
-        const response = await this.llm.chat(
-            text,
-            this.currentAgent.prompt_personaje,
-            this.currentTemperature
-);
+
+        
 
         if (!text || !this.currentAgent) return;
 
@@ -821,27 +850,41 @@ class LearningConstellationsApp {
         this.addMessage('user', text);
         input.value = '';
 
+        input.disabled = true;
+        sendBtn.disabled = true;
+
         // Mostrar indicador de carga
         this.addMessage('loading', 'Escribiendo...');
 
         try {
             const response = await this.llm.chat(
                 text,
-                this.currentAgent.prompt_personaje
+                this.currentAgent.prompt_personaje,
+                this.currentTemperature
             );
-
             // Reemplazar indicador con respuesta
             const loading = document.querySelector('#chat-messages .loading');
             if (loading) loading.remove();
-
+            
+            this.lastAgentResponse = response;
             this.addMessage('character', response);
+            
         } catch (error) {
             const loading = document.querySelector('#chat-messages .loading');
             if (loading) loading.remove();
 
-            this.addMessage('error', `Error: ${error.message}. Verifique su conexión y API key.`);
+            this.addMessage(
+                'error',
+                `Error: ${error.message}. Si aparece 429, espere un momento antes de volver a enviar.`
+            );
+
+        } finally {
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
         }
     }
+         
 
     addMessage(type, text) {
         const messagesContainer = document.getElementById('chat-messages');
@@ -918,39 +961,149 @@ class LearningConstellationsApp {
         }
 
         const testPrompt = 'Explícame cómo una interfaz de voz puede ayudar a un estudiante dentro de Aprende Fácil. Responde en máximo 5 líneas.';
-
         const temperatures = [0.0, 0.5, 1.0, 1.5];
         const results = [];
 
         for (const temp of temperatures) {
-           const start = performance.now();
+            const start = performance.now();
 
-           const response = await this.llm.chatOneShot(
-              testPrompt,
-              agent.prompt_personaje,
-              temp
-            );
+            try {
+                const response = await this.llm.chatOneShot(
+                    testPrompt,
+                    agent.prompt_personaje,
+                    temp
+                );
 
-           const durationMs = Math.round(performance.now() - start);
+                results.push({
+                    temperatura: temp,
+                    respuesta: response,
+                    caracteres: response.length,
+                    tiempo_ms: Math.round(performance.now() - start),
+                    error: ''
+                });
 
-           results.push({
-              temperatura: temp,
-              respuesta: response,
-              caracteres: response.length,
-              tiempo_ms: durationMs
-           });
+                console.log(`Temperatura ${temp}:`, response);
+
+            } catch (error) {
+                results.push({
+                    temperatura: temp,
+                    respuesta: '',
+                    caracteres: 0,
+                    tiempo_ms: Math.round(performance.now() - start),
+                    error: error.message
+                });
+
+                console.warn(`Error en temperatura ${temp}:`, error.message);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
         console.table(
-           results.map(item => ({
-              temperatura: item.temperatura,
-              caracteres: item.caracteres,
-              tiempo_ms: item.tiempo_ms,
-              muestra: item.respuesta.slice(0, 120) + '...'
-           }))
+            results.map(item => ({
+                temperatura: item.temperatura,
+                caracteres: item.caracteres,
+                tiempo_ms: item.tiempo_ms,
+                error: item.error,
+                muestra: item.respuesta ? item.respuesta.slice(0, 120) + '...' : ''
+            }))
         );
 
         return results;
+    }
+
+    speakText(text) {
+        if (!('speechSynthesis' in window)) {
+            this.addMessage('error', 'Este navegador no soporta lectura en voz alta.');
+            return;
+        }
+
+        if (!text || !text.trim()) {
+            this.addMessage('system', 'No hay texto disponible para leer.');
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'es-ES';
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+
+        const voices = window.speechSynthesis.getVoices();
+
+        const preferredVoice = voices.find(voice =>
+            voice.lang.startsWith('es') &&
+           /google|microsoft|natural|neural|online|español|spanish/i.test(voice.name)
+        );
+
+        const spanishVoice = preferredVoice || voices.find(voice =>
+            voice.lang.startsWith('es')
+        );
+
+        if (spanishVoice) {
+            utterance.voice = spanishVoice;
+            utterance.lang = spanishVoice.lang;
+        }
+
+        utterance.onstart = () => {
+            console.log('Lectura iniciada:', text);
+        };
+
+        utterance.onend = () => {
+            console.log('Lectura finalizada');
+        };
+
+        utterance.onerror = (event) => {
+            console.error('Error de lectura en voz alta:', event.error);
+            this.addMessage('error', `Error de lectura en voz alta: ${event.error}`);
+        };
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    startVoiceInput() {
+        if (this.isListening) {
+            this.addMessage('system', 'El reconocimiento de voz ya está activo.');
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            this.addMessage('error', 'Este navegador no soporta reconocimiento de voz.');
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'es-PE';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            this.isListening = true;
+            this.addMessage('system', 'Escuchando... dicta tu pregunta.');
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            const input = document.getElementById('chat-input');
+
+            input.value = transcript;
+            this.addMessage('system', `Texto dictado: ${transcript}`);
+            input.focus();
+        };
+
+        recognition.onerror = (event) => {
+            this.addMessage('error', `Error de reconocimiento de voz: ${event.error}`);
+        };
+
+        recognition.onend = () => {
+            this.isListening = false;
+        };
+
+        recognition.start();
     }
 
 }
