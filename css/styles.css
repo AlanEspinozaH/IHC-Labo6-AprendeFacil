@@ -543,7 +543,8 @@ body {
 }
 
 #btn-speak-last,
-#btn-voice-input {
+#btn-voice-input,
+#btn-back-node {
     padding: 6px 10px;
     border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.15);
@@ -553,7 +554,8 @@ body {
 }
 
 #btn-speak-last:hover,
-#btn-voice-input:hover {
+#btn-voice-input:hover,
+#btn-back-node:hover {
     background: rgba(255,255,255,0.15);
 }
 

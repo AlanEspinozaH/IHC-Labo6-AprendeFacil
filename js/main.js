@@ -30,6 +30,83 @@ const CONFIG = {
     }
 };
 
+const SUBJECT_QUIZZES = {
+    derivadas: {
+        'diagnostico-inicial': {
+            question: 'Si quieres aprender derivadas y ya conoces límites, ¿qué idea conviene repasar primero?',
+            options: [
+                'La pendiente de una recta tangente y la tasa de cambio',
+                'El diseño visual de la plataforma',
+                'La configuración de una API key',
+                'La diferencia entre frontend y backend'
+            ],
+            correctIndex: 0,
+            success: 'Correcto. La derivada se entiende mejor conectando límites con pendiente instantánea o tasa de cambio.',
+            error: 'No exactamente. Para empezar derivadas, lo más importante es conectar límites con pendiente y tasa de cambio.'
+        },
+        'ruta-sugerida': {
+            question: '¿Cuál sería una ruta razonable para empezar derivadas?',
+            options: [
+                'Reglas avanzadas → aplicaciones → definición',
+                'Definición intuitiva → límite del cociente incremental → reglas básicas',
+                'Solo memorizar fórmulas',
+                'Empezar por integrales impropias'
+            ],
+            correctIndex: 1,
+            success: 'Correcto. Primero conviene entender la idea, luego la definición formal y después las reglas.',
+            error: 'La ruta más defendible es: intuición, definición con límites y reglas básicas.'
+        },
+        'aprendizaje-adaptativo': {
+            question: 'En derivadas, ¿qué representa intuitivamente f’(x)?',
+            options: [
+                'El área acumulada bajo la curva',
+                'La pendiente de la recta tangente o tasa de cambio instantánea',
+                'El valor máximo absoluto de la función',
+                'La distancia entre dos puntos cualesquiera'
+            ],
+            correctIndex: 1,
+            success: 'Correcto. f’(x) representa la pendiente instantánea o tasa de cambio en un punto.',
+            error: 'Revisa la idea central: la derivada mide cambio instantáneo, no área acumulada.'
+        },
+        'practica-guiada': {
+            question: 'Si f(x) = x², ¿cuál es su derivada básica?',
+            options: [
+                'f’(x) = x',
+                'f’(x) = 2x',
+                'f’(x) = x³',
+                'f’(x) = 2'
+            ],
+            correctIndex: 1,
+            success: 'Correcto. Por la regla de la potencia, la derivada de x² es 2x.',
+            error: 'Usa la regla de la potencia: si f(x)=xⁿ, entonces f’(x)=n·xⁿ⁻¹.'
+        },
+        'evaluacion-quiz': {
+            question: '¿Qué conocimiento previo ayuda más a comprender la definición formal de derivada?',
+            options: [
+                'Límites',
+                'Diagramas UML',
+                'HTML semántico',
+                'Protocolos de red'
+            ],
+            correctIndex: 0,
+            success: 'Correcto. La definición formal de derivada se basa directamente en límites.',
+            error: 'La definición formal de derivada depende del límite del cociente incremental.'
+        },
+        'retroalimentacion-refuerzo': {
+            question: 'Si fallas ejercicios de derivadas básicas, ¿qué refuerzo conviene primero?',
+            options: [
+                'Saltar directamente a integrales',
+                'Repasar la regla de la potencia y practicar ejemplos simples',
+                'Ignorar la definición',
+                'Cambiar el tema sin revisar errores'
+            ],
+            correctIndex: 1,
+            success: 'Correcto. Primero conviene reforzar reglas básicas con ejemplos cortos.',
+            error: 'Lo más útil es reforzar reglas básicas y practicar antes de avanzar.'
+        }
+    }
+};
+
 class LearningConstellationsApp {
     constructor() {
         this.apiKey = null;
@@ -73,8 +150,14 @@ class LearningConstellationsApp {
 
     loadProgress() {
         const empty = {
+            learningGoal: '',
+            priorKnowledge: '',
+            diagnosticNote: '',
             completed: {},
             quizScores: {},
+            quizHistory: [],
+            strengths: [],
+            weaknesses: [],
             diagnosticLevel: 'pendiente',
             sharedCount: 0,
             lastUpdated: null
@@ -84,7 +167,7 @@ class LearningConstellationsApp {
             const saved = JSON.parse(localStorage.getItem(CONFIG.storageKey));
             return { ...empty, ...(saved || {}) };
         } catch (error) {
-            console.warn('No se pudo leer progreso local:', error);
+            console.warn('No se pudo leer modelo local del estudiante:', error);
             return empty;
         }
     }
@@ -92,6 +175,72 @@ class LearningConstellationsApp {
     saveProgress() {
         this.progress.lastUpdated = new Date().toISOString();
         localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.progress));
+    }
+
+    extractLearningGoal(text) {
+        const lower = text.toLowerCase();
+
+        const patterns = [
+            /quiero aprender(?: sobre)? ([^.]+)/i,
+            /quiero estudiar(?: sobre)? ([^.]+)/i,
+            /necesito aprender(?: sobre)? ([^.]+)/i,
+            /me interesa aprender(?: sobre)? ([^.]+)/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match?.[1]) return match[1].trim();
+        }
+
+        if (lower.includes('deriv')) return 'derivadas de Cálculo I';
+        if (lower.includes('integr')) return 'integrales';
+        if (lower.includes('límite') || lower.includes('limite')) return 'límites';
+        if (lower.includes('funcion')) return 'funciones';
+        if (lower.includes('continuidad')) return 'continuidad de funciones';
+
+        return this.progress.learningGoal || 'tema declarado por el estudiante';
+    }
+
+    updateLearnerModelFromChat(text) {
+        const lower = text.toLowerCase();
+
+        const mentionsLearningGoal =
+            lower.includes('quiero aprender') ||
+            lower.includes('quiero estudiar') ||
+            lower.includes('necesito aprender') ||
+            lower.includes('me interesa aprender');
+
+        const mentionsPriorKnowledge =
+            lower.includes('he visto') ||
+            lower.includes('sé ') ||
+            lower.includes('se ') ||
+            lower.includes('conozco') ||
+            lower.includes('ya llevé') ||
+            lower.includes('ya estudie') ||
+            lower.includes('ya estudié');
+
+        if (mentionsLearningGoal) {
+            this.progress.learningGoal = this.extractLearningGoal(text);
+            this.progress.diagnosticLevel = 'tema objetivo registrado';
+        }
+
+        if (mentionsPriorKnowledge) {
+            this.progress.priorKnowledge = text;
+            this.progress.diagnosticLevel = 'base previa identificada';
+        }
+
+        if (this.currentAgent?.id === 'diagnostico-inicial') {
+            this.progress.diagnosticNote = [
+                this.progress.diagnosticNote,
+                text
+            ].filter(Boolean).join('\n');
+
+            this.progress.completed['diagnostico-inicial'] = true;
+        }
+
+        this.saveProgress();
+        this.updateProgressUI();
+        this.updateAllNodeStates();
     }
 
     showApiKeyModal() {
@@ -647,9 +796,15 @@ class LearningConstellationsApp {
         document.getElementById('info-close').addEventListener('click', () => this.deselectNode());
 
         document.getElementById('chat-close').addEventListener('click', () => {
-            document.getElementById('chat-panel').classList.add('hidden');
-            this.currentAgent = null;
+            this.closeChatAndReturnToNode();
         });
+
+        const backNodeBtn = document.getElementById('btn-back-node');
+        if (backNodeBtn) {
+            backNodeBtn.addEventListener('click', () => {
+                this.closeChatAndReturnToNode();
+            });
+        }
         document.getElementById('chat-send').addEventListener('click', () => this.sendChatMessage());
         document.getElementById('chat-input').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.target.disabled) this.sendChatMessage();
@@ -751,49 +906,107 @@ class LearningConstellationsApp {
     resetProgress() {
         const ok = confirm('¿Borrar el progreso local guardado en este navegador?');
         if (!ok) return;
+
         this.progress = {
+            learningGoal: '',
+            priorKnowledge: '',
+            diagnosticNote: '',
             completed: {},
             quizScores: {},
+            quizHistory: [],
+            strengths: [],
+            weaknesses: [],
             diagnosticLevel: 'pendiente',
             sharedCount: 0,
             lastUpdated: null
         };
+
         this.saveProgress();
         this.updateAllNodeStates();
         this.updateProgressUI();
         this.deselectNode();
     }
 
+    getSubjectKey() {
+        const goal = `${this.progress.learningGoal || ''} ${this.progress.priorKnowledge || ''}`.toLowerCase();
+        if (goal.includes('deriv')) return 'derivadas';
+        return null;
+    }
+
+    getContextualQuizForNode(data) {
+        const subjectKey = this.getSubjectKey();
+
+        if (subjectKey && SUBJECT_QUIZZES[subjectKey]?.[data.id]) {
+            return SUBJECT_QUIZZES[subjectKey][data.id];
+        }
+
+        return data.quiz;
+    }
+
+
     showQuizForNode(data) {
         const panel = document.getElementById('quiz-panel');
+        const quiz = this.getContextualQuizForNode(data);
+
         panel.classList.remove('hidden');
         panel.innerHTML = '';
 
         const title = document.createElement('h4');
-        title.textContent = 'Mini quiz local';
+        title.textContent = this.getSubjectKey()
+            ? `Mini quiz sobre ${this.progress.learningGoal}`
+            : 'Mini quiz local';
+
         const question = document.createElement('p');
-        question.textContent = data.quiz.question;
+        question.textContent = quiz.question;
+
         panel.append(title, question);
 
         const list = document.createElement('div');
         list.className = 'quiz-options';
-        data.quiz.options.forEach((option, index) => {
+
+        quiz.options.forEach((option, index) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = option;
-            btn.addEventListener('click', () => this.answerQuiz(data, index, panel));
+            btn.addEventListener('click', () => this.answerQuiz(data, quiz, index, panel));
             list.appendChild(btn);
         });
+
         panel.appendChild(list);
     }
 
-    answerQuiz(data, selectedIndex, panel) {
-        const correct = selectedIndex === data.quiz.correctIndex;
+    answerQuiz(data, quiz, selectedIndex, panel) {
+        const correct = selectedIndex === quiz.correctIndex;
+
         const feedback = document.createElement('p');
         feedback.className = correct ? 'quiz-feedback ok' : 'quiz-feedback bad';
-        feedback.textContent = correct ? data.quiz.success : data.quiz.error;
-        panel.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+        feedback.textContent = correct ? quiz.success : quiz.error;
+
+        panel.querySelectorAll('button').forEach(btn => {
+        btn.disabled = true;
+        });
+
         panel.appendChild(feedback);
+
+        this.progress.quizHistory.push({
+            nodeId: data.id,
+            nodeName: data.nombre,
+            learningGoal: this.progress.learningGoal || '',
+            question: quiz.question,
+            correct,
+            selectedAnswer: quiz.options[selectedIndex],
+            timestamp: new Date().toISOString()
+        });
+
+        if (correct) {
+            this.progress.strengths.push(`Avance correcto en ${data.nombre}`);
+        } else {
+            this.progress.weaknesses.push(`Debe reforzar ${data.nombre}`);
+        }
+
+        this.progress.strengths = [...new Set(this.progress.strengths)].slice(-5);
+        this.progress.weaknesses = [...new Set(this.progress.weaknesses)].slice(-5);
+
         this.markNodeCompleted(data.id, { source: 'quiz', correct });
     }
 
@@ -848,7 +1061,17 @@ class LearningConstellationsApp {
         document.getElementById('progress-fill').style.width = `${percent}%`;
         document.getElementById('progress-text').textContent = `${percent}% completado · ${completed}/${MAIN_FLOW_NODE_IDS.length} nodos · ${score} pts`;
         document.getElementById('badge-text').textContent = `Insignia: ${this.getBadge()}`;
-        document.getElementById('diagnostic-text').textContent = `Diagnóstico: ${this.progress.diagnosticLevel} · Compartidos: ${this.progress.sharedCount}`;
+        
+        const goal = this.progress.learningGoal
+            ? ` · Tema: ${this.progress.learningGoal}`
+            : '';
+
+        const prior = this.progress.priorKnowledge
+            ? ' · Base previa registrada'
+            : '';
+
+        document.getElementById('diagnostic-text').textContent =
+            `Diagnóstico: ${this.progress.diagnosticLevel}${goal}${prior} · Compartidos: ${this.progress.sharedCount}`;
     }
 
     updateAllNodeStates() {
@@ -906,6 +1129,16 @@ class LearningConstellationsApp {
         input.focus();
     }
 
+    closeChatAndReturnToNode() {
+        document.getElementById('chat-panel').classList.add('hidden');
+        this.currentAgent = null;
+
+        if (this.selectedNode) {
+            document.getElementById('info-panel').classList.remove('hidden');
+            this.focusCameraOnNode(this.selectedNode);
+        }
+    }
+
     async sendChatMessage() {
         const input = document.getElementById('chat-input');
         const sendBtn = document.getElementById('chat-send');
@@ -913,8 +1146,22 @@ class LearningConstellationsApp {
         if (!text || !this.currentAgent) return;
 
         this.addMessage('user', text);
+
+        if (this.currentAgent?.id === 'diagnostico-inicial') {
+            this.updateLearnerModelFromChat(text);
+
+            if (this.progress.learningGoal) {
+                this.addMessage(
+                    'system',
+                    `Modelo local actualizado. Tema objetivo: ${this.escapeHtml(this.progress.learningGoal)}.`
+                );
+            }
+        }
+
         input.value = '';
         input.disabled = true;
+
+
         sendBtn.disabled = true;
         this.addMessage('loading', 'Escribiendo...');
 
