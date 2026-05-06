@@ -1,26 +1,20 @@
 // ============================================
-// Aprende Fácil - Constelación 3D de Aprendizaje
+// Aprende Fácil - MVP PC02: Ruta lineal + espiral exploratoria
 // ============================================
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LLMClient } from './llm-client.js';
-import { learningData } from './data.js';
+import { learningData, MAIN_FLOW_NODE_IDS } from './data.js';
 
-// ============================================
-// CONFIGURACIÓN GLOBAL
-// ============================================
 const CONFIG = {
-    spiral: {
-        a: 3,           // Radio inicial
-        b: 0.25,        // Factor de crecimiento
-        zSeparation: 10 // Separación entre categorías en eje Z
-    },
+    storageKey: 'aprende_facil_pc02_progress_v1',
     camera: {
         fov: 60,
         near: 0.1,
         far: 1000,
-        initialPos: [0, 20, 80]
+        linePos: [0, 16, 55],
+        spiralPos: [0, 22, 82]
     },
     colors: {
         concepto: 0x3498db,
@@ -28,15 +22,14 @@ const CONFIG = {
         evaluacion: 0xf39c12,
         accesibilidad: 0x9b59b6,
         gamificacion: 0xe74c3c,
+        completed: 0x2ecc71,
+        current: 0xfff176,
         default: 0xffffff,
         connection: 0x88ccff,
         background: 0x0a0e27
     }
 };
 
-// ============================================
-// CLASE PRINCIPAL
-// ============================================
 class LearningConstellationsApp {
     constructor() {
         this.apiKey = null;
@@ -50,30 +43,55 @@ class LearningConstellationsApp {
         this.mouse = new THREE.Vector2();
         this.nodes = [];
         this.connections = [];
-        this.connectionLines = [];
+        this.currentView = 'line';
         this.showAllConnections = false;
         this.hoveredNode = null;
         this.selectedNode = null;
         this.animationTime = 0;
-        this.currentTemperature = 1.0;
+        this.currentTemperature = 0.5;
         this.lastAgentResponse = '';
         this.isListening = false;
+        this.lineGuide = null;
+        this.spiralGuide = null;
+        this.progress = this.loadProgress();
 
         this.init();
     }
 
-    // ============================================
-    // INICIALIZACIÓN
-    // ============================================
     init() {
         this.showApiKeyModal();
         this.setupScene();
         this.loadData();
         this.setupInteraction();
         this.setupUI();
+        this.setView('line', { skipCamera: true });
+        this.updateProgressUI();
         this.animate();
 
         window.addEventListener('resize', () => this.onResize());
+    }
+
+    loadProgress() {
+        const empty = {
+            completed: {},
+            quizScores: {},
+            diagnosticLevel: 'pendiente',
+            sharedCount: 0,
+            lastUpdated: null
+        };
+
+        try {
+            const saved = JSON.parse(localStorage.getItem(CONFIG.storageKey));
+            return { ...empty, ...(saved || {}) };
+        } catch (error) {
+            console.warn('No se pudo leer progreso local:', error);
+            return empty;
+        }
+    }
+
+    saveProgress() {
+        this.progress.lastUpdated = new Date().toISOString();
+        localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.progress));
     }
 
     showApiKeyModal() {
@@ -82,11 +100,11 @@ class LearningConstellationsApp {
         const skipBtn = document.getElementById('btn-skip-key');
         const input = document.getElementById('api-key-input');
 
-        // Verificar si ya hay una key guardada
         const savedKey = localStorage.getItem('gemini_api_key');
         if (savedKey) {
             this.apiKey = savedKey;
             this.llm = new LLMClient(this.apiKey);
+            this.llm.setTemperature(this.currentTemperature);
             modal.classList.add('hidden');
             return;
         }
@@ -95,114 +113,92 @@ class LearningConstellationsApp {
 
         saveBtn.addEventListener('click', () => {
             const key = input.value.trim();
-            if (key) {
-                this.apiKey = key;
-                this.llm = new LLMClient(this.apiKey);
-                localStorage.setItem('gemini_api_key', key);
-                modal.classList.add('hidden');
-            } else {
+            if (!key) {
                 input.style.borderColor = '#e74c3c';
+                return;
             }
+            this.apiKey = key;
+            this.llm = new LLMClient(this.apiKey);
+            this.llm.setTemperature(this.currentTemperature);
+            localStorage.setItem('gemini_api_key', key);
+            modal.classList.add('hidden');
         });
 
         skipBtn.addEventListener('click', () => {
-            modal.classList.add('hidden');
-            // Crear LLM sin API key (modo solo visualización)
+            this.apiKey = null;
             this.llm = new LLMClient('');
+            modal.classList.add('hidden');
         });
     }
 
-    // ============================================
-    // ESCENA THREE.JS
-    // ============================================
     setupScene() {
         const container = document.getElementById('canvas-container');
         const width = container.clientWidth;
         const height = container.clientHeight;
 
-        // Escena
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(CONFIG.colors.background);
         this.scene.fog = new THREE.FogExp2(CONFIG.colors.background, 0.008);
 
-        // Cámara
         this.camera = new THREE.PerspectiveCamera(
-            CONFIG.camera.fov, 
-            width / height, 
-            CONFIG.camera.near, 
+            CONFIG.camera.fov,
+            width / height,
+            CONFIG.camera.near,
             CONFIG.camera.far
         );
-        this.camera.position.set(...CONFIG.camera.initialPos);
+        this.camera.position.set(...CONFIG.camera.linePos);
         this.camera.lookAt(0, 0, 0);
 
-        // Renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.setClearColor(CONFIG.colors.background);
         container.appendChild(this.renderer.domElement);
 
-        // Controles orbitales
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = 10;
-        this.controls.maxDistance = 200;
-        this.controls.autoRotate = true;
-        this.controls.autoRotateSpeed = 0.3;
+        this.controls.minDistance = 8;
+        this.controls.maxDistance = 190;
+        this.controls.autoRotate = false;
+        this.controls.autoRotateSpeed = 0.25;
 
-        // Iluminación
         this.setupLighting();
-
-        // Fondo estelar
         this.createStarfield();
-
-        // Espiral guía
-        this.createSpiralGuide();
+        this.createGuides();
     }
 
     setupLighting() {
-        // Luz ambiental suave
-        const ambient = new THREE.AmbientLight(0x404060, 0.4);
+        const ambient = new THREE.AmbientLight(0x404060, 0.45);
         this.scene.add(ambient);
 
-        // Luz principal
-        const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const mainLight = new THREE.DirectionalLight(0xffffff, 0.85);
         mainLight.position.set(50, 50, 50);
         this.scene.add(mainLight);
 
-        // Luz de relleno
-        const fillLight = new THREE.DirectionalLight(0x4444aa, 0.3);
+        const fillLight = new THREE.DirectionalLight(0x4444aa, 0.35);
         fillLight.position.set(-50, 20, -50);
         this.scene.add(fillLight);
 
-        // Luz puntual central
-        const pointLight = new THREE.PointLight(0xffffff, 0.5, 150);
+        const pointLight = new THREE.PointLight(0xffffff, 0.45, 160);
         pointLight.position.set(0, 10, 0);
         this.scene.add(pointLight);
     }
 
     createStarfield() {
         const starsGeometry = new THREE.BufferGeometry();
-        const starsCount = 2000;
+        const starsCount = 1700;
         const positions = new Float32Array(starsCount * 3);
         const colors = new Float32Array(starsCount * 3);
 
         for (let i = 0; i < starsCount; i++) {
             const i3 = i * 3;
-            positions[i3] = (Math.random() - 0.5) * 600;
-            positions[i3 + 1] = (Math.random() - 0.5) * 600;
-            positions[i3 + 2] = (Math.random() - 0.5) * 600;
-
-            // Color estelar variado
-            const starType = Math.random();
-            if (starType < 0.7) {
-                colors[i3] = 0.9; colors[i3 + 1] = 0.9; colors[i3 + 2] = 1.0;
-            } else if (starType < 0.9) {
-                colors[i3] = 1.0; colors[i3 + 1] = 0.9; colors[i3 + 2] = 0.7;
-            } else {
-                colors[i3] = 1.0; colors[i3 + 1] = 0.7; colors[i3 + 2] = 0.5;
-            }
+            positions[i3] = (Math.random() - 0.5) * 620;
+            positions[i3 + 1] = (Math.random() - 0.5) * 620;
+            positions[i3 + 2] = (Math.random() - 0.5) * 620;
+            colors[i3] = 0.85 + Math.random() * 0.15;
+            colors[i3 + 1] = 0.85 + Math.random() * 0.15;
+            colors[i3 + 2] = 0.9 + Math.random() * 0.1;
         }
 
         starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -212,58 +208,104 @@ class LearningConstellationsApp {
             size: 0.5,
             vertexColors: true,
             transparent: true,
-            opacity: 0.8,
+            opacity: 0.75,
             sizeAttenuation: true
         });
 
-        const stars = new THREE.Points(starsGeometry, starsMaterial);
-        this.scene.add(stars);
+        this.scene.add(new THREE.Points(starsGeometry, starsMaterial));
+    }
+
+    createGuides() {
+        this.lineGuide = this.createLineGuide();
+        this.spiralGuide = this.createSpiralGuide();
+        this.scene.add(this.lineGuide);
+        this.scene.add(this.spiralGuide);
+    }
+
+    createLineGuide() {
+        const group = new THREE.Group();
+        const points = MAIN_FLOW_NODE_IDS.map((_, index) => this.getLinePosition(index + 1));
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: 0x4facfe,
+            transparent: true,
+            opacity: 0.38
+        });
+        group.add(new THREE.Line(geometry, material));
+
+        points.forEach((point, index) => {
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(1.65, 0.04, 12, 48),
+                new THREE.MeshBasicMaterial({ color: 0x4facfe, transparent: true, opacity: 0.18 })
+            );
+            ring.position.copy(point);
+            ring.rotation.x = Math.PI / 2;
+            ring.name = `line-step-${index + 1}`;
+            group.add(ring);
+        });
+
+        return group;
     }
 
     createSpiralGuide() {
-        // Línea guía de la espiral (sutil)
+        const group = new THREE.Group();
         const points = [];
-        const turns = 5;
-        const pointsPerTurn = 60;
-        const { a, b } = CONFIG.spiral;
+        const turns = 2.5;
+        const pointsPerTurn = 70;
 
         for (let i = 0; i <= turns * pointsPerTurn; i++) {
             const t = i / pointsPerTurn;
             const angle = t * 2 * Math.PI;
-            const r = a * Math.exp(b * t);
-            const x = r * Math.cos(angle);
-            const y = r * Math.sin(angle);
-            const z = 0;
-            points.push(new THREE.Vector3(x, y, z));
+            const r = 4 + t * 3.1;
+            points.push(new THREE.Vector3(
+                r * Math.cos(angle),
+                r * Math.sin(angle),
+                (t - 1.25) * 7
+            ));
         }
 
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const material = new THREE.LineBasicMaterial({
             color: 0x333355,
             transparent: true,
-            opacity: 0.3
+            opacity: 0.32
         });
-
-        const spiralLine = new THREE.Line(geometry, material);
-        this.scene.add(spiralLine);
+        group.add(new THREE.Line(geometry, material));
+        return group;
     }
 
-    // ============================================
-    // CONVERSIÓN DE COORDENADAS
-    // ============================================
-    learningToPosition(order, category, importance) {
-        // La espiral representa progreso de aprendizaje, no tiempo histórico.
-        // Cada paso avanza alrededor de la espiral y aumenta ligeramente el radio.
-        const step = Math.max(1, Number(order) || 1) - 1;
-        const angle = step * 0.62 * Math.PI;
-        const { a, zSeparation } = CONFIG.spiral;
-        const r = a + step * 2.15;
+    loadData() {
+        learningData.events.forEach(event => this.createNode(event));
+        this.createConnections();
+        this.updateAllNodeStates();
+    }
 
-        const x = r * Math.cos(angle);
-        const y = r * Math.sin(angle);
-        const z = this.categoryIndex(category) * zSeparation - 20;
+    getLinePosition(order) {
+        const step = Math.max(1, Number(order) || 1) - 1;
+        const x = (step - 2.5) * 11.5;
+        const y = Math.sin(step * 0.75) * 2.5;
+        const z = Math.cos(step * 0.75) * 2.0;
+        return new THREE.Vector3(x, y, z);
+    }
+
+    getSpiralPosition(order, category) {
+        const step = Math.max(1, Number(order) || 1) - 1;
+        const total = MAIN_FLOW_NODE_IDS.length;
+
+        const angle = (step / total) * Math.PI * 2;
+        const radius = 12 + (step % 2) * 5;
+
+        const x = radius * Math.cos(angle);
+        const y = radius * Math.sin(angle);
+        const z = (step - (total - 1) / 2) * 2.2;
 
         return new THREE.Vector3(x, y, z);
+    }
+
+    getPositionForView(eventData, view = this.currentView) {
+        return view === 'spiral'
+            ? this.getSpiralPosition(eventData.orden, eventData.categoria)
+            : this.getLinePosition(eventData.orden);
     }
 
     categoryIndex(category) {
@@ -275,31 +317,14 @@ class LearningConstellationsApp {
         return CONFIG.colors[category] || CONFIG.colors.default;
     }
 
-    // ============================================
-    // CARGA DE DATOS Y CREACIÓN DE NODOS
-    // ============================================
-    loadData() {
-        learningData.events.forEach(event => {
-            this.createNode(event);
-        });
-
-        this.createConnections();
-    }
-
     createNode(eventData) {
-        const position = this.learningToPosition(
-            eventData.orden,
-            eventData.categoria,
-            eventData.importancia
-        );
-
-        const baseRadius = 0.4 + eventData.importancia * 0.12;
+        const position = this.getPositionForView(eventData, 'line');
+        const baseRadius = 0.65 + eventData.importancia * 0.075;
         const color = this.getCategoryColor(eventData.categoria);
 
-        // === NODO PRINCIPAL (esfera con emisión) ===
         const geometry = new THREE.SphereGeometry(baseRadius, 32, 32);
         const material = new THREE.MeshPhongMaterial({
-            color: color,
+            color,
             emissive: color,
             emissiveIntensity: 0.5,
             transparent: true,
@@ -312,314 +337,265 @@ class LearningConstellationsApp {
         mesh.userData = {
             ...eventData,
             originalScale: 1,
-            baseRadius: baseRadius,
-            originalColor: color
+            baseRadius,
+            originalColor: color,
+            flowNode: MAIN_FLOW_NODE_IDS.includes(eventData.id)
         };
 
         this.scene.add(mesh);
         this.nodes.push(mesh);
-
-        // === HALO LUMINOSO ===
         this.createGlow(mesh, color, baseRadius);
-
-        // === ANILLO DECORATIVO ===
         this.createRing(mesh, color, baseRadius);
-
-        // === ETIQUETA DE TEXTO (sprite) ===
-        this.createLabel(mesh, eventData.nombre, eventData.nivel || `Paso ${eventData.orden}`);
-
+        this.createLabel(mesh, eventData.nombre, `Paso ${eventData.orden}`);
         return mesh;
     }
 
     createGlow(parentMesh, color, baseRadius) {
-        const glowGeometry = new THREE.SphereGeometry(baseRadius * 2, 32, 32);
-        const glowMaterial = new THREE.MeshBasicMaterial({
-            color: color,
-            transparent: true,
-            opacity: 0.1
-        });
-        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+        const glow = new THREE.Mesh(
+            new THREE.SphereGeometry(baseRadius * 2.15, 32, 32),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12 })
+        );
         glow.name = 'glow';
         parentMesh.add(glow);
     }
 
     createRing(parentMesh, color, baseRadius) {
-        const ringGeometry = new THREE.RingGeometry(
-            baseRadius * 1.3,
-            baseRadius * 1.5,
-            32
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(baseRadius * 1.35, baseRadius * 1.55, 32),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.24, side: THREE.DoubleSide })
         );
-        const ringMaterial = new THREE.MeshBasicMaterial({
-            color: color,
-            transparent: true,
-            opacity: 0.2,
-            side: THREE.DoubleSide
-        });
-        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
         ring.name = 'ring';
         ring.rotation.x = Math.PI / 2;
         parentMesh.add(ring);
     }
 
-    createLabel(parentMesh, name, year) {
+    createLabel(parentMesh, name, subtitle) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
-        canvas.width = 256;
-        canvas.height = 64;
+        canvas.width = 320;
+        canvas.height = 86;
 
-        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        context.roundRect(0, 0, 256, 64, 8);
+        context.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        context.roundRect(0, 0, 320, 86, 10);
         context.fill();
 
-        context.font = 'bold 18px Arial';
+        context.font = 'bold 19px Arial';
         context.fillStyle = '#ffffff';
         context.textAlign = 'center';
-        context.fillText(name, 128, 28);
+        context.fillText(name, 160, 34);
 
-        context.font = '14px Arial';
+        context.font = '15px Arial';
         context.fillStyle = '#88ccff';
-        context.fillText(year.toString(), 128, 50);
+        context.fillText(subtitle, 160, 62);
 
         const texture = new THREE.CanvasTexture(canvas);
-        const spriteMaterial = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            opacity: 0.85
-        });
-        const sprite = new THREE.Sprite(spriteMaterial);
-        sprite.scale.set(8, 2, 1);
-        sprite.position.y = parentMesh.userData.baseRadius * 3 + 1;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 }));
+        sprite.scale.set(8.7, 2.35, 1);
+        sprite.position.y = parentMesh.userData.baseRadius * 3 + 1.2;
         sprite.name = 'label';
         parentMesh.add(sprite);
     }
 
-    // ============================================
-    // CONEXIONES CAUSALES
-    // ============================================
     createConnections() {
         this.nodes.forEach(sourceNode => {
             const sourceData = sourceNode.userData;
-            if (!sourceData.conexiones || sourceData.conexiones.length === 0) return;
+            if (!sourceData.conexiones?.length) return;
 
             sourceData.conexiones.forEach(targetId => {
                 const targetNode = this.nodes.find(n => n.userData.id === targetId);
                 if (!targetNode) return;
-
                 this.createConnectionCurve(sourceNode, targetNode);
             });
         });
+        this.updateConnectionGeometries();
     }
 
     createConnectionCurve(nodeA, nodeB) {
-        const start = nodeA.position.clone();
-        const end = nodeB.position.clone();
-
-        // Punto de control para arco elevado
-        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-        mid.z += 6;
-
-        const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-        const points = curve.getPoints(60);
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-
+        const geometry = new THREE.BufferGeometry();
         const material = new THREE.LineBasicMaterial({
             color: CONFIG.colors.connection,
             transparent: true,
-            opacity: 0.0 // Inicialmente invisible
+            opacity: 0.28
         });
-
         const line = new THREE.Line(geometry, material);
         line.name = 'connection';
         this.scene.add(line);
 
-        this.connections.push({
-            source: nodeA,
-            target: nodeB,
-            mesh: line,
-            curve: curve
+        this.connections.push({ source: nodeA, target: nodeB, mesh: line });
+    }
+
+    buildConnectionPoints(nodeA, nodeB) {
+        const start = nodeA.position.clone();
+        const end = nodeB.position.clone();
+        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+        if (this.currentView === 'spiral') {
+            mid.z += 5.5;
+        } else {
+            mid.y += 3.3;
+            mid.z += 1.5;
+        }
+
+        const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+        return curve.getPoints(46);
+    }
+
+    updateConnectionGeometries() {
+        this.connections.forEach(conn => {
+            const points = this.buildConnectionPoints(conn.source, conn.target);
+            conn.mesh.geometry.dispose();
+            conn.mesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
         });
     }
 
     updateConnectionsVisibility() {
         this.connections.forEach(conn => {
+            const sourceVisible = conn.source.visible;
+            const targetVisible = conn.target.visible;
+            conn.mesh.visible = sourceVisible && targetVisible;
+            if (!conn.mesh.visible) return;
+
+            if (this.currentView === 'line') {
+                conn.mesh.material.opacity = this.showAllConnections ? 0.48 : 0.28;
+                return;
+            }
+
             if (this.showAllConnections) {
-                conn.mesh.material.opacity = 0.4;
+                conn.mesh.material.opacity = 0.45;
                 return;
             }
 
             const distToSource = this.camera.position.distanceTo(conn.source.position);
             const distToTarget = this.camera.position.distanceTo(conn.target.position);
             const minDist = Math.min(distToSource, distToTarget);
-
-            if (minDist < 30) {
-                conn.mesh.material.opacity = Math.min(0.6, (30 - minDist) / 20);
-            } else {
-                conn.mesh.material.opacity = 0.0;
-            }
+            conn.mesh.material.opacity = minDist < 32 ? Math.min(0.58, (32 - minDist) / 22) : 0.0;
         });
     }
 
-    // ============================================
-    // INTERACCIÓN
-    // ============================================
     setupInteraction() {
         const canvas = this.renderer.domElement;
-
-        // Mouse move para hover y tooltip
         canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-
-        // Click para seleccionar nodo
         canvas.addEventListener('click', (e) => this.onClick(e));
-
-        // Detener rotación auto al interactuar
-        canvas.addEventListener('mousedown', () => {
-            this.controls.autoRotate = false;
-        });
+        canvas.addEventListener('mousedown', () => { this.controls.autoRotate = false; });
     }
 
     getMainNodeFromIntersection(object) {
-       let current = object;
-
-       while (current) {
-          if (this.nodes.includes(current)) {
-            return current;
-          }
-        current = current.parent;
-       }
-
-       return null;
+        let current = object;
+        while (current) {
+            if (this.nodes.includes(current)) return current;
+            current = current.parent;
+        }
+        return null;
     }
 
     onMouseMove(event) {
-       const rect = this.renderer.domElement.getBoundingClientRect();
-       this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-       this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-       this.raycaster.setFromCamera(this.mouse, this.camera);
-       const intersects = this.raycaster.intersectObjects(this.nodes, true);
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.nodes.filter(n => n.visible), true);
+        const tooltip = document.getElementById('tooltip');
 
-       const tooltip = document.getElementById('tooltip');
+        if (intersects.length > 0) {
+            const node = this.getMainNodeFromIntersection(intersects[0].object);
+            if (!node?.userData) {
+                tooltip.classList.add('hidden');
+                this.renderer.domElement.style.cursor = 'default';
+                return;
+            }
 
-       if (intersects.length > 0) {
-          const node = this.getMainNodeFromIntersection(intersects[0].object);
+            if (this.hoveredNode !== node) {
+                this.unhoverNode();
+                this.hoverNode(node);
+                this.hoveredNode = node;
+            }
 
-          if (!node || !node.userData) {
+            const data = node.userData;
+            const estado = this.progress.completed[data.id] ? 'Completado' : this.isNextSuggestedNode(data.id) ? 'Siguiente sugerido' : 'Pendiente';
+            tooltip.classList.remove('hidden');
+            tooltip.innerHTML = `
+                <div class="tooltip-name">${this.escapeHtml(data.nombre)}</div>
+                <div class="tooltip-year">Paso ${data.orden} · ${this.escapeHtml(data.nivel)} · ${estado}</div>
+                <div class="tooltip-summary">${this.escapeHtml(data.resumen).substring(0, 115)}...</div>
+            `;
+            tooltip.style.left = `${event.clientX + 15}px`;
+            tooltip.style.top = `${event.clientY + 15}px`;
+            this.renderer.domElement.style.cursor = 'pointer';
+        } else {
+            this.unhoverNode();
+            this.hoveredNode = null;
             tooltip.classList.add('hidden');
             this.renderer.domElement.style.cursor = 'default';
-            return;
-          }
-
-          const data = node.userData;
-
-          if (this.hoveredNode !== node) {
-              this.unhoverNode();
-              this.hoverNode(node);
-              this.hoveredNode = node;
-          }
-
-          const resumen = data.resumen || 'Sin resumen disponible';
-          const nombre = data.nombre || 'Nodo sin nombre';
-          const orden = data.orden ?? 'N/D';
-          const nivel = data.nivel || 'general';
- 
-          tooltip.classList.remove('hidden');
-          tooltip.innerHTML = `
-            <div class="tooltip-name">${nombre}</div>
-            <div class="tooltip-year">Paso ${orden} · ${nivel}</div>
-            <div class="tooltip-summary">${resumen.substring(0, 100)}...</div>
-          `;
-
-          tooltip.style.left = (event.clientX + 15) + 'px';
-          tooltip.style.top = (event.clientY + 15) + 'px';
-
-          this.renderer.domElement.style.cursor = 'pointer';
-       } else {
-          this.unhoverNode();
-          this.hoveredNode = null;
-          tooltip.classList.add('hidden');
-          this.renderer.domElement.style.cursor = 'default';
-       }
-
+        }
     }
 
     hoverNode(node) {
-        node.scale.setScalar(1.4);
+        node.scale.setScalar(1.28);
         node.material.emissiveIntensity = 0.9;
-
         const glow = node.getObjectByName('glow');
-        if (glow) glow.material.opacity = 0.25;
-
+        if (glow) glow.material.opacity = 0.28;
         const ring = node.getObjectByName('ring');
-        if (ring) {
-            ring.material.opacity = 0.5;
-            ring.rotation.x = this.animationTime * 2;
-        }
+        if (ring) ring.material.opacity = 0.58;
     }
 
     unhoverNode() {
         if (!this.hoveredNode) return;
-
         this.hoveredNode.scale.setScalar(1);
-        this.hoveredNode.material.emissiveIntensity = 0.5;
-
-        const glow = this.hoveredNode.getObjectByName('glow');
-        if (glow) glow.material.opacity = 0.1;
-
-        const ring = this.hoveredNode.getObjectByName('ring');
-        if (ring) {
-            ring.material.opacity = 0.2;
-            ring.rotation.x = Math.PI / 2;
-        }
+        this.updateNodeStateVisual(this.hoveredNode);
     }
 
     onClick(event) {
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-      );
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
 
-      this.raycaster.setFromCamera(mouse, this.camera);
-      const intersects = this.raycaster.intersectObjects(this.nodes, true);
+        this.raycaster.setFromCamera(mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.nodes.filter(n => n.visible), true);
 
-      if (intersects.length > 0) {
-        const selectedNode = this.getMainNodeFromIntersection(intersects[0].object);
-
-        if (selectedNode) {
-            this.selectNode(selectedNode);
+        if (intersects.length > 0) {
+            const selectedNode = this.getMainNodeFromIntersection(intersects[0].object);
+            if (selectedNode) this.selectNode(selectedNode);
+        } else {
+            this.deselectNode();
         }
-      } else {
-        this.deselectNode();
-      }
-
     }
 
     selectNode(node) {
         this.selectedNode = node;
         const data = node.userData;
-
-        // Mostrar panel de info
         const infoPanel = document.getElementById('info-panel');
         infoPanel.classList.remove('hidden');
 
         document.getElementById('info-title').textContent = data.nombre;
-        document.getElementById('info-year').textContent = `Secuencia: ${data.orden} · Nivel: ${data.nivel || 'general'}`;
+        document.getElementById('info-year').textContent = `Paso ${data.orden} · Nivel: ${data.nivel} · Módulo: ${data.modulo}`;
         document.getElementById('info-summary').textContent = data.resumen;
+        document.getElementById('info-help').textContent = data.ayuda;
+
+        const stateEl = document.getElementById('node-progress-state');
+        stateEl.textContent = this.progress.completed[data.id]
+            ? 'Nodo completado'
+            : this.isNextSuggestedNode(data.id)
+                ? 'Siguiente nodo sugerido'
+                : 'Nodo pendiente';
 
         const catEl = document.getElementById('info-category');
-        catEl.textContent = (data.categoria || 'sin categoria').toUpperCase();
-        catEl.style.background = '#' + this.getCategoryColor(data.categoria).toString(16).padStart(6, '0') + '33';
-        catEl.style.color = '#' + this.getCategoryColor(data.categoria).toString(16).padStart(6, '0');
-        // Configurar botón de chat
-        const chatBtn = document.getElementById('btn-chat');
-        if (data.prompt_personaje) {
-            chatBtn.style.display = 'block';
-            chatBtn.onclick = () => this.openChat(data);
-        } else {
-            chatBtn.style.display = 'none';
-        }
+        catEl.textContent = `${(data.categoria || 'sin categoria').toUpperCase()} · Agente: ${data.agente}`;
+        catEl.style.background = `#${this.getCategoryColor(data.categoria).toString(16).padStart(6, '0')}33`;
+        catEl.style.color = `#${this.getCategoryColor(data.categoria).toString(16).padStart(6, '0')}`;
 
-        // Animar cámara hacia el nodo
+        document.getElementById('quiz-panel').classList.add('hidden');
+        document.getElementById('quiz-panel').innerHTML = '';
+        document.getElementById('share-output').classList.add('hidden');
+        document.getElementById('share-output').value = '';
+
+        document.getElementById('btn-chat').onclick = () => this.openChat(data);
+        document.getElementById('btn-complete-node').onclick = () => this.markNodeCompleted(data.id, { source: 'manual' });
+        document.getElementById('btn-quiz').onclick = () => this.showQuizForNode(data);
+        document.getElementById('btn-share').onclick = () => this.shareProgress(data);
+
         this.focusCameraOnNode(node);
     }
 
@@ -630,209 +606,302 @@ class LearningConstellationsApp {
 
     focusCameraOnNode(node) {
         const targetPos = node.position.clone();
-        targetPos.z += 30;
-        targetPos.y += 15;
-
-        // Animación simple de cámara
+        const cameraOffset = this.currentView === 'spiral'
+            ? new THREE.Vector3(0, 13, 28)
+            : new THREE.Vector3(0, 12, 26);
+        const endCamera = targetPos.clone().add(cameraOffset);
         const startPos = this.camera.position.clone();
         const startTarget = this.controls.target.clone();
         let progress = 0;
 
         const animateCamera = () => {
-            progress += 0.03;
+            progress += 0.035;
             if (progress >= 1) {
                 this.controls.target.copy(node.position);
                 return;
             }
-
             const ease = 1 - Math.pow(1 - progress, 3);
-            this.camera.position.lerpVectors(startPos, targetPos, ease);
+            this.camera.position.lerpVectors(startPos, endCamera, ease);
             this.controls.target.lerpVectors(startTarget, node.position, ease);
             requestAnimationFrame(animateCamera);
         };
-
         animateCamera();
     }
 
-    // ============================================
-    // UI CONTROLES
-    // ============================================
     setupUI() {
-        const temperatureSelect = document.getElementById('temperature-select');
-        if (temperatureSelect) {
-            temperatureSelect.addEventListener('change', (e) => {
-                this.currentTemperature = Number(e.target.value);
-                if (this.llm) {
-                    this.llm.setTemperature(this.currentTemperature);
-                }
-                this.addMessage(
-                    'system',
-                    `Temperatura ajustada a ${this.currentTemperature.toFixed(1)}.`
-                );
-            });
-        }
+        document.getElementById('btn-view-line').addEventListener('click', () => this.setView('line'));
+        document.getElementById('btn-view-spiral').addEventListener('click', () => this.setView('spiral'));
 
-        // boton leer
-        const speakBtn = document.getElementById('btn-speak-last');
-        if (speakBtn) {
-            speakBtn.addEventListener('click', () => {
-                if (!this.lastAgentResponse) {
-                    this.addMessage('system', 'Todavía no hay una respuesta del agente para leer.');
-                    return;
-                }
-
-                this.speakText(this.lastAgentResponse);
-            });
-        }
-
-        // boton del dictado
-        const voiceBtn = document.getElementById('btn-voice-input');
-        if (voiceBtn) {
-            voiceBtn.addEventListener('click', () => {
-                this.startVoiceInput();
-            });
-        }
-
-        // Botón de conexiones
         document.getElementById('btn-connections').addEventListener('click', (e) => {
             this.showAllConnections = !this.showAllConnections;
-            e.target.classList.toggle('active');
-            e.target.textContent = this.showAllConnections ? 'Ocultar Conexiones' : 'Ver Conexiones';
+            e.target.classList.toggle('active', this.showAllConnections);
+            e.target.setAttribute('aria-pressed', String(this.showAllConnections));
+            e.target.textContent = this.showAllConnections ? 'Ocultar conexiones' : 'Ver conexiones';
         });
 
-        // Botón reset
-        document.getElementById('btn-reset').addEventListener('click', () => {
-            this.camera.position.set(...CONFIG.camera.initialPos);
-            this.controls.target.set(0, 0, 0);
-            this.controls.autoRotate = true;
-            this.deselectNode();
-        });
+        document.getElementById('btn-reset').addEventListener('click', () => this.resetCamera());
+        document.getElementById('btn-reset-progress').addEventListener('click', () => this.resetProgress());
 
-        // Filtro por categoría
-        document.getElementById('filter-category').addEventListener('change', (e) => {
-            this.filterByCategory(e.target.value);
-        });
+        document.getElementById('filter-category').addEventListener('change', (e) => this.applyVisibilityFilters());
+        document.getElementById('search-node').addEventListener('input', () => this.applyVisibilityFilters());
+        document.getElementById('info-close').addEventListener('click', () => this.deselectNode());
 
-        // Búsqueda
-        document.getElementById('search-node').addEventListener('input', (e) => {
-            this.searchNodes(e.target.value);
-        });
-
-        // Cerrar info panel
-        document.getElementById('info-close').addEventListener('click', () => {
-            this.deselectNode();
-        });
-
-        // Chat panel
         document.getElementById('chat-close').addEventListener('click', () => {
             document.getElementById('chat-panel').classList.add('hidden');
             this.currentAgent = null;
         });
-
-        document.getElementById('chat-send').addEventListener('click', () => {
-            this.sendChatMessage();
+        document.getElementById('chat-send').addEventListener('click', () => this.sendChatMessage());
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.target.disabled) this.sendChatMessage();
         });
 
-        document.getElementById('chat-input').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.target.disabled) {
-            this.sendChatMessage();
+        const temperatureSelect = document.getElementById('temperature-select');
+        temperatureSelect.addEventListener('change', (e) => {
+            this.currentTemperature = Number(e.target.value);
+            if (this.llm) this.llm.setTemperature(this.currentTemperature);
+            if (!document.getElementById('chat-panel').classList.contains('hidden')) {
+                this.addMessage('system', `Temperatura ajustada a ${this.currentTemperature.toFixed(1)}.`);
             }
         });
+
+        document.getElementById('btn-speak-last').addEventListener('click', () => {
+            if (!this.lastAgentResponse) {
+                this.addMessage('system', 'Todavía no hay una respuesta del agente para leer.');
+                return;
+            }
+            this.speakText(this.lastAgentResponse);
+        });
+        document.getElementById('btn-voice-input').addEventListener('click', () => this.startVoiceInput());
 
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.onvoiceschanged = () => {
-                console.log('Voces disponibles:', window.speechSynthesis.getVoices());
-            };
+            window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
-
     }
 
-    filterByCategory(category) {
+    setView(view, options = {}) {
+        this.currentView = view;
+        const isLine = view === 'line';
+
+        document.getElementById('btn-view-line').classList.toggle('active', isLine);
+        document.getElementById('btn-view-line').setAttribute('aria-pressed', String(isLine));
+        document.getElementById('btn-view-spiral').classList.toggle('active', !isLine);
+        document.getElementById('btn-view-spiral').setAttribute('aria-pressed', String(!isLine));
+
+        if (this.lineGuide) this.lineGuide.visible = isLine;
+        if (this.spiralGuide) this.spiralGuide.visible = !isLine;
+        this.controls.autoRotate = !isLine;
+
+        this.nodes.forEach(node => {
+            const target = this.getPositionForView(node.userData, view);
+            node.position.copy(target);
+        });
+        this.updateConnectionGeometries();
+        this.applyVisibilityFilters();
+
+        if (!options.skipCamera) this.resetCamera();
+    }
+
+    resetCamera() {
+        const cameraPos = this.currentView === 'line' ? CONFIG.camera.linePos : CONFIG.camera.spiralPos;
+        this.camera.position.set(...cameraPos);
+        this.controls.target.set(0, 0, 0);
+        this.controls.autoRotate = this.currentView === 'spiral';
+        this.deselectNode();
+    }
+
+    applyVisibilityFilters() {
+        const category = document.getElementById('filter-category').value;
+        const query = document.getElementById('search-node').value.trim().toLowerCase();
+
         this.nodes.forEach(node => {
             const data = node.userData;
-            if (category === 'all' || data.categoria === category) {
-                node.visible = true;
-                const glow = node.getObjectByName('glow');
-                const ring = node.getObjectByName('ring');
-                const label = node.getObjectByName('label');
-                if (glow) glow.visible = true;
-                if (ring) ring.visible = true;
-                if (label) label.visible = true;
-            } else {
-                node.visible = false;
-                const glow = node.getObjectByName('glow');
-                const ring = node.getObjectByName('ring');
-                const label = node.getObjectByName('label');
-                if (glow) glow.visible = false;
-                if (ring) ring.visible = false;
-                if (label) label.visible = false;
-            }
+            const categoryMatch = category === 'all' || data.categoria === category;
+            const queryMatch = !query ||
+                data.nombre.toLowerCase().includes(query) ||
+                data.categoria.toLowerCase().includes(query) ||
+                data.resumen.toLowerCase().includes(query) ||
+                String(data.orden).includes(query);
+            const visible = categoryMatch && queryMatch;
+            node.visible = visible;
+            ['glow', 'ring', 'label'].forEach(name => {
+                const child = node.getObjectByName(name);
+                if (child) child.visible = visible;
+            });
         });
     }
 
-    searchNodes(query) {
-        if (!query.trim()) {
-            this.filterByCategory(document.getElementById('filter-category').value);
-            return;
+    markNodeCompleted(nodeId, { source = 'manual', correct = true } = {}) {
+        this.progress.completed[nodeId] = true;
+        if (nodeId === 'diagnostico-inicial') {
+            this.progress.diagnosticLevel = correct ? 'base identificada' : 'requiere refuerzo';
         }
+        if (source === 'quiz') {
+            this.progress.quizScores[nodeId] = correct ? 20 : 5;
+        }
+        this.saveProgress();
+        this.updateAllNodeStates();
+        this.updateProgressUI();
 
-        const lowerQuery = query.toLowerCase();
-        this.nodes.forEach(node => {
-            const data = node.userData;
-            const match = data.nombre.toLowerCase().includes(lowerQuery) ||
-                         String(data.orden).includes(lowerQuery) ||
-                         data.categoria.toLowerCase().includes(lowerQuery) ||
-                         data.resumen.toLowerCase().includes(lowerQuery);
-
-            node.visible = match;
-            const glow = node.getObjectByName('glow');
-            const ring = node.getObjectByName('ring');
-            const label = node.getObjectByName('label');
-            if (glow) glow.visible = match;
-            if (ring) ring.visible = match;
-            if (label) label.visible = match;
-        });
+        if (this.selectedNode?.userData?.id === nodeId) {
+            const stateEl = document.getElementById('node-progress-state');
+            if (stateEl) stateEl.textContent = 'Nodo completado';
+        }
     }
 
-    // ============================================
-    // SISTEMA DE CHAT CON PERSONAJES
-    // ============================================
+    resetProgress() {
+        const ok = confirm('¿Borrar el progreso local guardado en este navegador?');
+        if (!ok) return;
+        this.progress = {
+            completed: {},
+            quizScores: {},
+            diagnosticLevel: 'pendiente',
+            sharedCount: 0,
+            lastUpdated: null
+        };
+        this.saveProgress();
+        this.updateAllNodeStates();
+        this.updateProgressUI();
+        this.deselectNode();
+    }
+
+    showQuizForNode(data) {
+        const panel = document.getElementById('quiz-panel');
+        panel.classList.remove('hidden');
+        panel.innerHTML = '';
+
+        const title = document.createElement('h4');
+        title.textContent = 'Mini quiz local';
+        const question = document.createElement('p');
+        question.textContent = data.quiz.question;
+        panel.append(title, question);
+
+        const list = document.createElement('div');
+        list.className = 'quiz-options';
+        data.quiz.options.forEach((option, index) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = option;
+            btn.addEventListener('click', () => this.answerQuiz(data, index, panel));
+            list.appendChild(btn);
+        });
+        panel.appendChild(list);
+    }
+
+    answerQuiz(data, selectedIndex, panel) {
+        const correct = selectedIndex === data.quiz.correctIndex;
+        const feedback = document.createElement('p');
+        feedback.className = correct ? 'quiz-feedback ok' : 'quiz-feedback bad';
+        feedback.textContent = correct ? data.quiz.success : data.quiz.error;
+        panel.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+        panel.appendChild(feedback);
+        this.markNodeCompleted(data.id, { source: 'quiz', correct });
+    }
+
+    shareProgress(data) {
+        const completed = this.getCompletedCount();
+        const percent = this.getProgressPercent();
+        const score = this.getScore();
+        const message = `Estoy usando Aprende Fácil. Avance: ${percent}% (${completed}/${MAIN_FLOW_NODE_IDS.length} nodos). Puntaje: ${score}. Último nodo revisado: ${data.nombre}. ¿Te animas a resolver este reto también?`;
+        const output = document.getElementById('share-output');
+        output.classList.remove('hidden');
+        output.value = message;
+        output.select();
+        this.progress.sharedCount += 1;
+        this.saveProgress();
+        this.updateProgressUI();
+
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(message).catch(() => null);
+        }
+    }
+
+    isNextSuggestedNode(nodeId) {
+        const next = MAIN_FLOW_NODE_IDS.find(id => !this.progress.completed[id]);
+        return nodeId === next;
+    }
+
+    getCompletedCount() {
+        return MAIN_FLOW_NODE_IDS.filter(id => this.progress.completed[id]).length;
+    }
+
+    getProgressPercent() {
+        return Math.round((this.getCompletedCount() / MAIN_FLOW_NODE_IDS.length) * 100);
+    }
+
+    getScore() {
+        return Object.values(this.progress.quizScores).reduce((sum, value) => sum + Number(value || 0), 0);
+    }
+
+    getBadge() {
+        const completed = this.getCompletedCount();
+        const score = this.getScore();
+        if (completed >= 6) return 'Ruta completa';
+        if (completed >= 4 || score >= 60) return 'Practicante constante';
+        if (completed >= 2 || score >= 20) return 'Aprendiz en ruta';
+        return 'Explorador inicial';
+    }
+
+    updateProgressUI() {
+        const percent = this.getProgressPercent();
+        const completed = this.getCompletedCount();
+        const score = this.getScore();
+        document.getElementById('progress-fill').style.width = `${percent}%`;
+        document.getElementById('progress-text').textContent = `${percent}% completado · ${completed}/${MAIN_FLOW_NODE_IDS.length} nodos · ${score} pts`;
+        document.getElementById('badge-text').textContent = `Insignia: ${this.getBadge()}`;
+        document.getElementById('diagnostic-text').textContent = `Diagnóstico: ${this.progress.diagnosticLevel} · Compartidos: ${this.progress.sharedCount}`;
+    }
+
+    updateAllNodeStates() {
+        this.nodes.forEach(node => this.updateNodeStateVisual(node));
+    }
+
+    updateNodeStateVisual(node) {
+        const data = node.userData;
+        const completed = Boolean(this.progress.completed[data.id]);
+        const current = this.isNextSuggestedNode(data.id);
+        const baseColor = completed ? CONFIG.colors.completed : data.originalColor;
+        node.material.color.setHex(baseColor);
+        node.material.emissive.setHex(current && !completed ? CONFIG.colors.current : baseColor);
+        node.material.emissiveIntensity = completed ? 0.82 : current ? 0.72 : 0.45;
+        node.material.opacity = completed ? 1.0 : current ? 0.96 : 0.72;
+
+        const glow = node.getObjectByName('glow');
+        if (glow) {
+            glow.material.color.setHex(completed ? CONFIG.colors.completed : baseColor);
+            glow.material.opacity = completed ? 0.22 : current ? 0.2 : 0.1;
+        }
+
+        const ring = node.getObjectByName('ring');
+        if (ring) {
+            ring.material.color.setHex(current && !completed ? CONFIG.colors.current : baseColor);
+            ring.material.opacity = completed ? 0.55 : current ? 0.48 : 0.22;
+        }
+    }
+
     openChat(agentData) {
-        if (!this.llm || !this.apiKey) {
-            alert('Configure su API key de Gemini para usar el chat con agentes. Recargue la página e ingrese su key.');
-            return;
-        }
-
         this.currentAgent = agentData;
         this.lastAgentResponse = '';
-        this.llm.clearHistory();
+        if (this.llm) this.llm.clearHistory();
 
         const chatPanel = document.getElementById('chat-panel');
         const avatar = document.getElementById('chat-avatar');
         const name = document.getElementById('chat-name');
+        const status = document.getElementById('chat-status');
         const messages = document.getElementById('chat-messages');
         const input = document.getElementById('chat-input');
         const temperatureSelect = document.getElementById('temperature-select');
 
         avatar.src = agentData.avatar;
-        avatar.alt = agentData.nombre;
-        name.textContent = `${agentData.nombre} · ${agentData.nivel || 'Agente'}`;
-
+        avatar.alt = agentData.agente;
+        name.textContent = `${agentData.agente} · ${agentData.nombre}`;
+        status.textContent = this.apiKey ? 'Gemini activo' : 'Modo local simulado';
+        status.className = this.apiKey ? 'status-online' : 'status-local';
         messages.innerHTML = '';
-        
-        this.addMessage(
-            'system', 
-            `Estás conversando con <strong>${agentData.nombre}</strong>. ${agentData.resumen}`);
 
-        this.addMessage(
-             'character',
-             `Hola, soy ${agentData.nombre}. Escribe una pregunta para iniciar la conversación.`
-        );
+        this.addMessage('system', `Nodo: <strong>${this.escapeHtml(agentData.nombre)}</strong>. ${this.escapeHtml(agentData.resumen)}`);
+        this.addMessage('character', `Hola, soy ${agentData.agente}. Puedes hacerme una pregunta. ${this.apiKey ? 'Usaré Gemini.' : 'Como no hay API key, responderé en modo local simulado.'}`);
 
-        if (temperatureSelect) {
-            temperatureSelect.value = String(this.currentTemperature);
-        }
-
+        temperatureSelect.value = String(this.currentTemperature);
         chatPanel.classList.remove('hidden');
         input.focus();
     }
@@ -841,98 +910,88 @@ class LearningConstellationsApp {
         const input = document.getElementById('chat-input');
         const sendBtn = document.getElementById('chat-send');
         const text = input.value.trim();
-
-        
-
         if (!text || !this.currentAgent) return;
 
-        // Mostrar mensaje del usuario
         this.addMessage('user', text);
         input.value = '';
-
         input.disabled = true;
         sendBtn.disabled = true;
-
-        // Mostrar indicador de carga
         this.addMessage('loading', 'Escribiendo...');
 
         try {
-            const response = await this.llm.chat(
-                text,
-                this.currentAgent.prompt_personaje,
-                this.currentTemperature
-            );
-            // Reemplazar indicador con respuesta
-            const loading = document.querySelector('#chat-messages .loading');
-            if (loading) loading.remove();
-            
+            let response;
+            if (this.apiKey && this.llm) {
+                response = await this.llm.chat(text, this.currentAgent.prompt_personaje, this.currentTemperature);
+            } else {
+                response = await this.localChatFallback(text, this.currentAgent);
+            }
+            document.querySelector('#chat-messages .loading')?.remove();
             this.lastAgentResponse = response;
             this.addMessage('character', response);
-            
         } catch (error) {
-            const loading = document.querySelector('#chat-messages .loading');
-            if (loading) loading.remove();
-
-            this.addMessage(
-                'error',
-                `Error: ${error.message}. Si aparece 429, espere un momento antes de volver a enviar.`
-            );
-
+            document.querySelector('#chat-messages .loading')?.remove();
+            this.addMessage('error', `Error del LLM: ${error.message}. Se mostrará una respuesta local para continuar la prueba.`);
+            const fallback = await this.localChatFallback(text, this.currentAgent, true);
+            this.lastAgentResponse = fallback;
+            this.addMessage('character', fallback);
         } finally {
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
         }
     }
-         
+
+    async localChatFallback(userText, agentData, apiFailed = false) {
+        await new Promise(resolve => setTimeout(resolve, 450));
+        const prefix = apiFailed ? 'Respuesta local por falla/cuota de API. ' : 'Respuesta local simulada. ';
+        const lower = userText.toLowerCase();
+
+        if (lower.includes('voz') || lower.includes('dict') || lower.includes('leer')) {
+            return `${prefix}Para este nodo, prueba dos acciones: dictar una pregunta con el botón “Dictar” y luego usar “Leer” para escuchar la última respuesta. Limitación: el soporte de reconocimiento de voz depende del navegador.`;
+        }
+        if (lower.includes('quiz') || lower.includes('evalu')) {
+            return `${prefix}Usa “Resolver mini quiz” en el panel del nodo. El puntaje y el estado se guardan en localStorage, así que funciona sin backend ni consumo de Gemini.`;
+        }
+        if (lower.includes('accesibilidad') || lower.includes('baja visión')) {
+            return `${prefix}La ayuda actual para baja visión se apoya en lectura en voz alta, textos breves, estados visibles y ruta lineal. En una versión futura convendría añadir modo alto contraste configurable.`;
+        }
+        if (lower.includes('compartir') || lower.includes('compañero')) {
+            return `${prefix}La interactividad con otros usuarios está simulada mediante el botón “Compartir avance”. Genera un mensaje copiable, pero no implementa colaboración en tiempo real.`;
+        }
+
+        return `${prefix}${agentData.nombre}: revisa el resumen del nodo, completa el mini quiz y marca el nodo como completado. La recomendación crítica es no vender este MVP como sistema adaptativo avanzado; es una simulación local defendible para PC02.`;
+    }
 
     addMessage(type, text) {
         const messagesContainer = document.getElementById('chat-messages');
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${type}`;
-
-        if (type === 'system') {
-            msgDiv.innerHTML = text;
-        } else {
-            msgDiv.textContent = text;
-        }
-
+        if (type === 'system') msgDiv.innerHTML = text;
+        else msgDiv.textContent = text;
         messagesContainer.appendChild(msgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // ============================================
-    // ANIMACIÓN Y RENDER
-    // ============================================
     animate() {
         requestAnimationFrame(() => this.animate());
-
         this.animationTime = performance.now() * 0.001;
-
-        // Actualizar visibilidad de conexiones
         this.updateConnectionsVisibility();
 
-        // Animar nodos (pulso)
         this.nodes.forEach((node, i) => {
-            const pulse = Math.sin(this.animationTime * 2 + i * 0.5) * 0.05 + 1;
             const ring = node.getObjectByName('ring');
             if (ring) {
+                const pulse = Math.sin(this.animationTime * 2 + i * 0.45) * 0.05 + 1;
                 ring.scale.setScalar(pulse);
-                ring.rotation.z += 0.005;
+                ring.rotation.z += 0.006;
             }
-
-            // Animar glow
             const glow = node.getObjectByName('glow');
             if (glow) {
-                const glowPulse = Math.sin(this.animationTime * 1.5 + i * 0.3) * 0.02 + 1;
+                const glowPulse = Math.sin(this.animationTime * 1.5 + i * 0.3) * 0.03 + 1;
                 glow.scale.setScalar(glowPulse);
             }
         });
 
-        // Actualizar controles
         this.controls.update();
-
-        // Render
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -940,75 +999,45 @@ class LearningConstellationsApp {
         const container = document.getElementById('canvas-container');
         const width = container.clientWidth;
         const height = container.clientHeight;
-
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
     }
 
-
-    async runTemperatureExperiment(agentId = 'interfaz-voz') {
+    async runTemperatureExperiment(agentId = 'aprendizaje-adaptativo') {
         if (!this.llm || !this.apiKey) {
-           alert('Primero configura la API key de Gemini.');
-           return;
+            alert('Primero configura la API key de Gemini. Evita ejecutar esto muchas veces porque consume cuota.');
+            return [];
         }
 
         const agent = learningData.events.find(event => event.id === agentId);
-
         if (!agent) {
-           console.error(`No se encontró el agente con id: ${agentId}`);
-           return;
+            console.error(`No se encontró el agente con id: ${agentId}`);
+            return [];
         }
 
-        const testPrompt = 'Explícame cómo una interfaz de voz puede ayudar a un estudiante dentro de Aprende Fácil. Responde en máximo 5 líneas.';
+        const testPrompt = 'Explica en máximo 5 líneas cómo Aprende Fácil personaliza la ruta del estudiante sin exagerar las capacidades del MVP.';
         const temperatures = [0.0, 0.5, 1.0, 1.5];
         const results = [];
 
         for (const temp of temperatures) {
             const start = performance.now();
-
             try {
-                const response = await this.llm.chatOneShot(
-                    testPrompt,
-                    agent.prompt_personaje,
-                    temp
-                );
-
-                results.push({
-                    temperatura: temp,
-                    respuesta: response,
-                    caracteres: response.length,
-                    tiempo_ms: Math.round(performance.now() - start),
-                    error: ''
-                });
-
-                console.log(`Temperatura ${temp}:`, response);
-
+                const response = await this.llm.chatOneShot(testPrompt, agent.prompt_personaje, temp);
+                results.push({ temperatura: temp, respuesta: response, caracteres: response.length, tiempo_ms: Math.round(performance.now() - start), error: '' });
             } catch (error) {
-                results.push({
-                    temperatura: temp,
-                    respuesta: '',
-                    caracteres: 0,
-                    tiempo_ms: Math.round(performance.now() - start),
-                    error: error.message
-                });
-
-                console.warn(`Error en temperatura ${temp}:`, error.message);
+                results.push({ temperatura: temp, respuesta: '', caracteres: 0, tiempo_ms: Math.round(performance.now() - start), error: error.message });
             }
-
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await new Promise(resolve => setTimeout(resolve, 2500));
         }
 
-        console.table(
-            results.map(item => ({
-                temperatura: item.temperatura,
-                caracteres: item.caracteres,
-                tiempo_ms: item.tiempo_ms,
-                error: item.error,
-                muestra: item.respuesta ? item.respuesta.slice(0, 120) + '...' : ''
-            }))
-        );
-
+        console.table(results.map(item => ({
+            temperatura: item.temperatura,
+            caracteres: item.caracteres,
+            tiempo_ms: item.tiempo_ms,
+            error: item.error,
+            muestra: item.respuesta ? `${item.respuesta.slice(0, 120)}...` : ''
+        })));
         return results;
     }
 
@@ -1017,49 +1046,28 @@ class LearningConstellationsApp {
             this.addMessage('error', 'Este navegador no soporta lectura en voz alta.');
             return;
         }
-
-        if (!text || !text.trim()) {
+        if (!text?.trim()) {
             this.addMessage('system', 'No hay texto disponible para leer.');
             return;
         }
 
         window.speechSynthesis.cancel();
-
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'es-ES';
+        utterance.lang = 'es-PE';
         utterance.rate = 0.95;
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
 
         const voices = window.speechSynthesis.getVoices();
-
         const preferredVoice = voices.find(voice =>
-            voice.lang.startsWith('es') &&
-           /google|microsoft|natural|neural|online|español|spanish/i.test(voice.name)
+            voice.lang.startsWith('es') && /google|microsoft|natural|neural|online|español|spanish/i.test(voice.name)
         );
-
-        const spanishVoice = preferredVoice || voices.find(voice =>
-            voice.lang.startsWith('es')
-        );
-
+        const spanishVoice = preferredVoice || voices.find(voice => voice.lang.startsWith('es'));
         if (spanishVoice) {
             utterance.voice = spanishVoice;
             utterance.lang = spanishVoice.lang;
         }
-
-        utterance.onstart = () => {
-            console.log('Lectura iniciada:', text);
-        };
-
-        utterance.onend = () => {
-            console.log('Lectura finalizada');
-        };
-
-        utterance.onerror = (event) => {
-            console.error('Error de lectura en voz alta:', event.error);
-            this.addMessage('error', `Error de lectura en voz alta: ${event.error}`);
-        };
-
+        utterance.onerror = event => this.addMessage('error', `Error de lectura en voz alta: ${event.error}`);
         window.speechSynthesis.speak(utterance);
     }
 
@@ -1070,9 +1078,8 @@ class LearningConstellationsApp {
         }
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
         if (!SpeechRecognition) {
-            this.addMessage('error', 'Este navegador no soporta reconocimiento de voz.');
+            this.addMessage('error', 'Este navegador no soporta reconocimiento de voz. En Chrome suele funcionar mejor que en Firefox.');
             return;
         }
 
@@ -1085,32 +1092,28 @@ class LearningConstellationsApp {
             this.isListening = true;
             this.addMessage('system', 'Escuchando... dicta tu pregunta.');
         };
-
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             const input = document.getElementById('chat-input');
-
             input.value = transcript;
-            this.addMessage('system', `Texto dictado: ${transcript}`);
+            this.addMessage('system', `Texto dictado: ${this.escapeHtml(transcript)}`);
             input.focus();
         };
-
-        recognition.onerror = (event) => {
-            this.addMessage('error', `Error de reconocimiento de voz: ${event.error}`);
-        };
-
-        recognition.onend = () => {
-            this.isListening = false;
-        };
-
+        recognition.onerror = (event) => this.addMessage('error', `Error de reconocimiento de voz: ${event.error}`);
+        recognition.onend = () => { this.isListening = false; };
         recognition.start();
     }
 
+    escapeHtml(value) {
+        return String(value)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
 }
 
-// ============================================
-// INICIALIZACIÓN
-// ============================================
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new LearningConstellationsApp();
 });

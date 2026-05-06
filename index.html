@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aprende Fácil | Constelación 3D de Aprendizaje</title>
+    <title>Aprende Fácil | Ruta adaptativa PC02</title>
     <link rel="stylesheet" href="css/styles.css">
     <script type="importmap">
     {
@@ -15,12 +15,18 @@
     </script>
 </head>
 <body>
-    <div id="header">
-        <h1>Aprende Fácil: Constelación 3D de Aprendizaje</h1>
-        <div id="controls">
-            <button id="btn-connections" class="toggle-btn">Ver conexiones</button>
-            <button id="btn-reset" class="control-btn">Reiniciar vista</button>
-            <select id="filter-category" aria-label="Filtrar por categoría">
+    <header id="header">
+        <div class="brand-block">
+            <h1>Aprende Fácil</h1>
+            <span>Ruta adaptativa de aprendizaje · MVP PC02</span>
+        </div>
+        <nav id="controls" aria-label="Controles principales del prototipo">
+            <button id="btn-view-line" class="toggle-btn active" type="button" aria-pressed="true">Vista línea</button>
+            <button id="btn-view-spiral" class="toggle-btn" type="button" aria-pressed="false">Vista espiral</button>
+            <button id="btn-connections" class="toggle-btn" type="button" aria-pressed="false">Ver conexiones</button>
+            <button id="btn-reset" class="control-btn" type="button">Reiniciar vista</button>
+            <button id="btn-reset-progress" class="control-btn danger" type="button">Borrar progreso</button>
+            <select id="filter-category" aria-label="Filtrar nodos por categoría">
                 <option value="all">Todas las categorías</option>
                 <option value="concepto">Conceptos</option>
                 <option value="interfaz">Interfaces</option>
@@ -28,20 +34,40 @@
                 <option value="accesibilidad">Accesibilidad</option>
                 <option value="gamificacion">Gamificación</option>
             </select>
-            <input type="text" id="search-node" placeholder="Buscar concepto..." aria-label="Buscar concepto">
-        </div>
-    </div>
+            <input type="search" id="search-node" placeholder="Buscar nodo..." aria-label="Buscar nodo de la ruta">
+        </nav>
+    </header>
 
-    <div id="info-panel" class="hidden" aria-live="polite">
-        <button id="info-close" aria-label="Cerrar panel">&times;</button>
+    <aside id="progress-panel" aria-live="polite">
+        <p class="eyebrow">Personalización continua</p>
+        <h2>Progreso del estudiante</h2>
+        <div class="progress-bar" aria-label="Porcentaje de progreso">
+            <div id="progress-fill"></div>
+        </div>
+        <p id="progress-text">0% completado · 0/6 nodos</p>
+        <p id="badge-text" class="badge">Insignia: Explorador inicial</p>
+        <p id="diagnostic-text" class="small-note">Diagnóstico: pendiente</p>
+    </aside>
+
+    <aside id="info-panel" class="hidden" aria-live="polite">
+        <button id="info-close" aria-label="Cerrar panel de información">&times;</button>
+        <p id="node-progress-state" class="node-state">Nodo no iniciado</p>
         <h3 id="info-title"></h3>
         <p id="info-year"></p>
         <p id="info-summary"></p>
         <p id="info-category"></p>
-        <button id="btn-chat" class="chat-btn">Conversar con este agente</button>
-    </div>
+        <div id="info-help" class="context-help"></div>
+        <div class="info-actions">
+            <button id="btn-complete-node" class="secondary-action" type="button">Marcar completado</button>
+            <button id="btn-quiz" class="secondary-action" type="button">Resolver mini quiz</button>
+            <button id="btn-share" class="secondary-action" type="button">Compartir avance</button>
+            <button id="btn-chat" class="chat-btn" type="button">Conversar con agente</button>
+        </div>
+        <div id="quiz-panel" class="hidden"></div>
+        <textarea id="share-output" class="hidden" readonly aria-label="Mensaje generado para compartir avance"></textarea>
+    </aside>
 
-    <div id="chat-panel" class="hidden" aria-live="polite">
+    <section id="chat-panel" class="hidden" aria-live="polite">
         <div id="chat-header">
             <img id="chat-avatar" src="" alt="Avatar del agente">
             <div>
@@ -55,45 +81,53 @@
            <label for="temperature-select">Temperatura:</label>
            <select id="temperature-select" aria-label="Temperatura del agente">
                <option value="0">0.0 Preciso</option>
-               <option value="0.5">0.5 Equilibrado</option>
-               <option value="1" selected>1.0 Creativo</option>
+               <option value="0.5" selected>0.5 Equilibrado</option>
+               <option value="1">1.0 Creativo</option>
                <option value="1.5">1.5 Muy creativo</option>
            </select>
-
-        <button id="btn-speak-last" type="button">🔊 Leer</button>
-        <button id="btn-voice-input" type="button">🎙️ Dictar</button>
+           <button id="btn-speak-last" type="button">🔊 Leer</button>
+           <button id="btn-voice-input" type="button">🎙️ Dictar</button>
         </div>
         <div id="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Pregunta sobre este concepto..." aria-label="Mensaje para el agente">
-            <button id="chat-send">Enviar</button>
+            <input type="text" id="chat-input" placeholder="Pregunta sobre este nodo..." aria-label="Mensaje para el agente">
+            <button id="chat-send" type="button">Enviar</button>
         </div>
-    </div>
+    </section>
 
     <div id="api-key-modal" class="modal">
         <div class="modal-content">
             <h3>Configurar API Key de Gemini</h3>
-            <p>Para conversar con los agentes de aprendizaje, necesitas una API key de Google AI Studio.</p>
-            <p>Obtén una en: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com/app/apikey</a></p>
+            <p>Para probar el agente LLM real, pega una API key de Google AI Studio. La clave se guarda solo en localStorage del navegador.</p>
+            <p>También puedes omitirla: el prototipo seguirá funcionando con respuestas locales simuladas para no consumir cuota.</p>
+            <p><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Abrir Google AI Studio</a></p>
             <input type="password" id="api-key-input" placeholder="Ingresa tu API key" autocomplete="off">
             <div class="modal-buttons">
-                <button id="btn-save-key">Guardar</button>
-                <button id="btn-skip-key" class="secondary">Omitir (solo visualización)</button>
+                <button id="btn-save-key" type="button">Guardar</button>
+                <button id="btn-skip-key" class="secondary" type="button">Omitir y usar modo local</button>
             </div>
-            <p style="font-size:0.8rem; margin-top:12px;">La clave se guarda solo en localStorage del navegador. No debe subirse al repositorio.</p>
+            <p class="small-note">No subas capturas, logs ni archivos que muestren la clave.</p>
         </div>
     </div>
 
-    <div id="legend">
-        <h4>Categorías</h4>
+    <aside id="legend">
+        <h4>Leyenda</h4>
         <div class="legend-item"><span class="dot" style="background:#3498db"></span> Conceptos</div>
         <div class="legend-item"><span class="dot" style="background:#2ecc71"></span> Interfaces</div>
         <div class="legend-item"><span class="dot" style="background:#f39c12"></span> Evaluación</div>
         <div class="legend-item"><span class="dot" style="background:#9b59b6"></span> Accesibilidad</div>
         <div class="legend-item"><span class="dot" style="background:#e74c3c"></span> Gamificación</div>
-    </div>
+        <hr>
+        <div class="legend-item"><span class="state-dot completed"></span> Completado</div>
+        <div class="legend-item"><span class="state-dot current"></span> Siguiente sugerido</div>
+    </aside>
 
-    <div id="canvas-container"></div>
-    <div id="tooltip" class="hidden"></div>
+    <aside id="help-panel">
+        <h4>Ayuda contextual</h4>
+        <p>Selecciona un nodo para ver su propósito, resolver un mini quiz, escuchar respuestas por voz o conversar con un agente. La línea guía el flujo principal; la espiral sirve para exploración.</p>
+    </aside>
+
+    <main id="canvas-container" aria-label="Visualización 3D de la ruta de aprendizaje"></main>
+    <div id="tooltip" class="hidden" role="tooltip"></div>
 
     <script type="module" src="js/main.js"></script>
 </body>
