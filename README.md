@@ -96,6 +96,9 @@ pruebas a un mismo prompt modificando la temperatura (0.0 , 0.5 , 1 y 1.5)
 ```text
 await app.runTemperatureExperiment('interfaz-voz')
 ```
+## Enlace del Figma del proyecto
+
+https://www.figma.com/design/zF6fiMKpdjCsF3Wj7RTFZV/proyecto-de-ihc?node-id=98-48&t=5kSstqriQlQlm46X-1
 
 ## Estructura del proyecto
 
