@@ -176,7 +176,11 @@ function getVoiceSettings(profileCode) {
 
 app.post('/api/tts', async (req, res) => {
     try {
-        const { text, voiceProfileCode = 'tutor' } = req.body;
+        const {
+            text,
+            voiceProfileCode = 'tutor',
+            provider = 'elevenlabs'
+        } = req.body;
 
         const cleanedText = cleanTextForTts(text);
 
@@ -184,6 +188,15 @@ app.post('/api/tts', async (req, res) => {
             return res.status(400).json({
                 ok: false,
                 error: 'Texto vacío para TTS.'
+            });
+        }
+
+        if (provider !== 'elevenlabs') {
+            return res.status(400).json({
+                ok: false,
+                provider,
+                providerCode: 'unsupported_provider',
+                error: `Proveedor TTS no soportado todavía por el backend: ${provider}`
             });
         }
 
@@ -201,7 +214,7 @@ app.post('/api/tts', async (req, res) => {
         }
 
         const hashInput = JSON.stringify({
-            provider: 'elevenlabs',
+            provider: 'provider',
             modelId,
             voiceId,
             voiceProfileCode,

@@ -135,6 +135,7 @@ class LearningConstellationsApp {
         this.currentAudio = null;
         this.ttsAbortController = null;
         this.autoSpeak = false;
+        this.currentTtsProvider = 'browser';
         this.voiceProfiles = [];
         this.lineGuide = null;
         this.spiralGuide = null;
@@ -850,6 +851,17 @@ class LearningConstellationsApp {
             this.closeChatAndReturnToNode();
         });
 
+        document.getElementById('tts-provider-select')?.addEventListener('change', (e) => {
+            this.currentTtsProvider = e.target.value;
+
+            const selectedLabel = e.target.options[e.target.selectedIndex].text;
+
+            this.addMessage(
+                'system',
+                `Motor TTS cambiado a: ${this.escapeHtml(selectedLabel)}.`
+            );
+        });
+
         const backNodeBtn = document.getElementById('btn-back-node');
         if (backNodeBtn) {
             backNodeBtn.addEventListener('click', () => {
@@ -1481,7 +1493,7 @@ class LearningConstellationsApp {
         if (!('speechSynthesis' in window)) {
             this.addMessage(
                 'error',
-                'ElevenLabs falló y este navegador no soporta lectura local.'
+                'Este navegador no soporta lectura local.'
             );
             return;
         }
@@ -1526,7 +1538,7 @@ class LearningConstellationsApp {
             const suffix = reason ? ` Motivo: ${this.escapeHtml(reason)}.` : '';
             this.addMessage(
                 'system',
-                `Usando lectura local del navegador como respaldo.${suffix}`
+                `Usando lectura local del navegador.${suffix}`
             );
         };
 
@@ -1543,6 +1555,20 @@ class LearningConstellationsApp {
             return;
         }
 
+        if (this.currentTtsProvider === 'browser') {
+            this.speakTextWithBrowserFallback(text, 'motor seleccionado: navegador');
+            return;
+        }
+
+        if (this.currentTtsProvider === 'elevenlabs') {
+            await this.speakTextWithRemoteProvider(text, 'elevenlabs');
+            return;
+        }
+
+        this.speakTextWithBrowserFallback(text, 'motor TTS no reconocido');
+    }
+
+    async speakTextWithRemoteProvider(text, provider) {
         const profile = this.getVoiceProfileConfig();
         const speakButton = document.getElementById('btn-speak-last');
         const backendBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
@@ -1567,13 +1593,14 @@ class LearningConstellationsApp {
 
             this.addMessage(
                 'system',
-                `Solicitando audio a ElevenLabs · perfil: ${this.escapeHtml(profile.label)}.`
+                `Solicitando audio a ${provider} · perfil: ${this.escapeHtml(profile.label)}.`
             );
 
             const response = await fetch(`${API_BASE_URL}/tts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    provider,
                     text: cleanText,
                     voiceProfileCode: this.currentVoiceProfile
                 }),
@@ -1593,7 +1620,7 @@ class LearningConstellationsApp {
                 ) {
                     this.addMessage(
                         'error',
-                        'ElevenLabs rechazó la voz configurada: tu plan actual no puede usar esa library voice por API.'
+                        'ElevenLabs rechazó la voz configurada. Se usará voz local del navegador.'
                     );
 
                     this.speakTextWithBrowserFallback(
@@ -1617,28 +1644,15 @@ class LearningConstellationsApp {
             };
 
             audio.onerror = () => {
-                this.addMessage(
-                    'error',
-                    'No se pudo reproducir el audio generado por ElevenLabs.'
-                );
-                this.speakTextWithBrowserFallback(
-                    cleanText,
-                    'falló la reproducción del audio remoto'
-                );
+                this.addMessage('error', 'No se pudo reproducir el audio remoto.');
+                this.speakTextWithBrowserFallback(cleanText, 'falló la reproducción remota');
             };
 
             await audio.play();
         } catch (error) {
             if (error.name !== 'AbortError') {
-                this.addMessage(
-                    'error',
-                    `Error de lectura ElevenLabs: ${error.message}`
-                );
-
-                this.speakTextWithBrowserFallback(
-                    cleanText,
-                    'falló la generación remota'
-                );
+                this.addMessage('error', `Error de lectura remota: ${error.message}`);
+                this.speakTextWithBrowserFallback(cleanText, 'falló el proveedor remoto');
             }
         } finally {
             if (this.ttsAbortController === controller) {
