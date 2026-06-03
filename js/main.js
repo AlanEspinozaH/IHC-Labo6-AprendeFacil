@@ -30,6 +30,9 @@ const CONFIG = {
     }
 };
 
+const API_BASE_URL = 'http://localhost:3001/api';
+const STUDENT_ID = 'demo-student';
+
 const SUBJECT_QUIZZES = {
     derivadas: {
         'diagnostico-inicial': {
@@ -130,51 +133,52 @@ class LearningConstellationsApp {
         this.isListening = false;
         this.lineGuide = null;
         this.spiralGuide = null;
-        this.progress = this.loadProgress();
+        this.progress = this.createEmptyProgress();
 
         this.init();
     }
 
-    init() {
+    async init() {
         this.showApiKeyModal();
         this.setupScene();
         this.loadData();
+
+        await this.loadProgressFromApi();
+
+        this.renderLegend();
         this.setupInteraction();
         this.setupUI();
         this.setView('line', { skipCamera: true });
+        this.updateAllNodeStates();
         this.updateProgressUI();
         this.animate();
 
         window.addEventListener('resize', () => this.onResize());
     }
 
-    loadProgress() {
-        const empty = {
-            learningGoal: '',
-            priorKnowledge: '',
-            diagnosticNote: '',
-            completed: {},
-            quizScores: {},
-            quizHistory: [],
-            strengths: [],
-            weaknesses: [],
-            diagnosticLevel: 'pendiente',
-            sharedCount: 0,
-            lastUpdated: null
-        };
-
+    async loadProgressFromApi() {
         try {
-            const saved = JSON.parse(localStorage.getItem(CONFIG.storageKey));
-            return { ...empty, ...(saved || {}) };
+            const response = await fetch(`${API_BASE_URL}/progress/${STUDENT_ID}`);
+            if (!response.ok) throw new Error('No se pudo cargar progreso');
+            this.progress = await response.json();
         } catch (error) {
-            console.warn('No se pudo leer modelo local del estudiante:', error);
-            return empty;
+            console.warn('Usando progreso local vacío por error de backend:', error);
+            this.progress = this.createEmptyProgress();
         }
     }
 
-    saveProgress() {
+    async saveProgress() {
         this.progress.lastUpdated = new Date().toISOString();
-        localStorage.setItem(CONFIG.storageKey, JSON.stringify(this.progress));
+
+        try {
+            await fetch(`${API_BASE_URL}/progress/${STUDENT_ID}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.progress)
+            });
+        } catch (error) {
+            console.error('No se pudo guardar progreso en SQLite:', error);
+        }
     }
 
     extractLearningGoal(text) {
@@ -619,6 +623,22 @@ class LearningConstellationsApp {
             const minDist = Math.min(distToSource, distToTarget);
             conn.mesh.material.opacity = minDist < 32 ? Math.min(0.58, (32 - minDist) / 22) : 0.0;
         });
+    }
+
+    createEmptyProgress() {
+        return {
+            learningGoal: '',
+            priorKnowledge: '',
+            diagnosticNote: '',
+            completed: {},
+            quizScores: {},
+            quizHistory: [],
+            strengths: [],
+            weaknesses: [],
+            diagnosticLevel: 'pendiente',
+            sharedCount: 0,
+            lastUpdated: null
+        };
     }
 
     setupInteraction() {
@@ -1359,6 +1379,53 @@ class LearningConstellationsApp {
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&#039;');
     }
+
+    renderLegend() {
+        const list = document.getElementById('legend-node-list');
+
+        if (!list) {
+            console.error('No existe #legend-node-list en index.html');
+            return;
+        }
+
+        const orderedNodes = [...learningData.events]
+        .sort((a, b) => Number(a.orden) - Number(b.orden));
+
+        if (!orderedNodes.length) {
+            list.innerHTML = '<p class="small-note">No hay nodos cargados.</p>';
+            return;
+        }
+
+        list.innerHTML = orderedNodes.map((event) => {
+            const color = `#${this.getCategoryColor(event.categoria).toString(16).padStart(6, '0')}`;
+
+            return `
+                <button 
+                    class="legend-item legend-node" 
+                    type="button" 
+                    data-node-id="${this.escapeHtml(event.id)}"
+                    title="${this.escapeHtml(event.categoria)}"
+                >
+                    <span class="dot" style="background:${color}"></span>
+                    <span>${event.orden}. ${this.escapeHtml(event.nombre)}</span>
+                </button>
+            `;
+        }).join('');
+
+        list.querySelectorAll('.legend-node').forEach((item) => {
+            item.addEventListener('click', () => {
+                const nodeId = item.dataset.nodeId;
+                const node = this.nodes.find((n) => n.userData.id === nodeId);
+
+                if (node) {
+                    this.selectNode(node);
+                } else {
+                    console.warn(`No se encontró el nodo con id: ${nodeId}`);
+                }
+            });
+        });
+    }
+
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -9,16 +9,88 @@ Explorar una variante de interfaz inteligente para Aprende Fácil donde el estud
 
 ## Funcionalidades
 
-- Espiral 3D de progreso de aprendizaje con 15 nodos.
-- Nodos luminosos con halo y animación.
-- Navegación orbital: zoom, rotación y paneo.
-- Tooltips con descripción del concepto.
-- Conexiones de dependencia conceptual que aparecen al acercar la cámara.
-- Botón para mostrar u ocultar todas las relaciones.
-- Filtro por categoría: conceptos, interfaces, evaluación, accesibilidad y gamificación.
-- Búsqueda de nodos por nombre, categoría o resumen.
-- Chat con agentes de aprendizaje mediante Gemini API.
-- Memoria de conversación por agente.
+- Visualización 3D de la ruta de aprendizaje con **Three.js**.
+- Vista lineal para el flujo principal de estudio.
+- Vista espiral para exploración alternativa.
+- Nodos con etiquetas, halo, animación y estados visuales.
+- Leyenda dinámica basada en los nombres reales de los nodos.
+- Panel de progreso del estudiante.
+- Marcado de nodos completados.
+- Mini quizzes locales por nodo.
+- Puntaje, insignias y progreso porcentual.
+- Filtro por categoría y búsqueda de nodos.
+- Chat con agentes educativos mediante Gemini API.
+- Modo local simulado si no se configura API key.
+- Lectura en voz alta y dictado usando Web Speech API del navegador.
+- Backend local con **Node.js + Express + SQLite** para guardar progreso.
+
+## Arquitectura del proyecto
+
+```text
+Frontend
+index.html + css/styles.css + js/main.js + js/data.js + js/llm-client.js
+        ↓ fetch()
+Backend local
+backend/server.js + backend/db.js
+        ↓
+SQLite
+backend/aprende_facil.sqlite
+```
+
+El frontend se ejecuta con un servidor HTTP local. El backend se ejecuta aparte en el puerto `3001` y expone endpoints bajo `/api`.
+
+## Requisitos generales
+
+Antes de ejecutar el proyecto, se necesita:
+
+- Git.
+- Node.js 18 o superior.
+- npm.
+- Python 3.
+- Navegador moderno: Chrome, Edge o Firefox.
+
+Para las funciones de voz, se recomienda Chrome o Edge porque el soporte de reconocimiento de voz puede variar según navegador y sistema operativo.
+
+## Dependencias del backend
+
+El backend usa las siguientes dependencias de npm:
+
+```text
+express
+cors
+better-sqlite3
+dotenv
+```
+
+Normalmente se instalan con:
+
+```bash
+cd backend
+npm install
+```
+
+Si el archivo `package.json` todavía no contiene las dependencias, instalarlas con:
+
+```bash
+npm install express cors better-sqlite3 dotenv
+```
+
+Después de instalar, `package.json` debe incluir una sección parecida a:
+
+```json
+{
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "...",
+    "cors": "...",
+    "dotenv": "...",
+    "express": "..."
+  }
+}
+```
 
 ## Categorías usadas
 
@@ -47,42 +119,316 @@ La aplicación conserva el patrón de `prompt_personaje` del laboratorio, pero l
 
 Cada prompt incluye reglas de comportamiento, límites de alcance y estilo de comunicación.
 
-## Ejecutar localmente
+## Ejecutar en Ubuntu / Linux
 
-El proyecto usa ES6 Modules, por lo que debe abrirse con un servidor HTTP local.
-
-### Opción 1 (Windows 11): Python
+### 1. Instalar paquetes del sistema
 
 ```bash
-cd ubicación-del-proyecto
-python -m http.server 8080
+sudo apt update
+sudo apt install -y git nodejs npm python3 build-essential
 ```
 
-Luego abrir el navegador y pegar esta url:
-
-```text
-http://localhost:8080
-```
-
-### Opción 2 (distri. Linux - Ubuntu): Python3
+Verificar instalación:
 
 ```bash
-cd ubicación-del-proyecto
-python3 -m http.server 8080 --bind 127.0.0.1
+node -v
+npm -v
+python3 --version
 ```
 
-Luego abrir un navegador web y poner esta url:
+### 2. Descargar o actualizar el proyecto
+
+Si se clona por primera vez:
+
+```bash
+git clone URL_DEL_REPOSITORIO
+cd IHC-Labo6-AprendeFacil
+```
+
+Si ya existe el proyecto localmente:
+
+```bash
+cd ~/Descargas/IHC-Labo6-AprendeFacil
+git pull
+```
+
+### 3. Ejecutar el backend SQLite
+
+Abrir una terminal y ejecutar:
+
+```bash
+cd ~/Descargas/IHC-Labo6-AprendeFacil/backend
+npm install
+npm run dev
+```
+
+Debe aparecer un mensaje similar a:
 
 ```text
-http://127.0.0.1:8080
+Backend Aprende Fácil activo en http://localhost:3001
 ```
 
-### Opción 3: VS Code + Live Server
+No cerrar esta terminal mientras se usa la aplicación.
 
-1. Abrir la carpeta del proyecto en VS Code.
-2. Instalar la extensión **Live Server**.
-3. Click derecho en `index.html`.
-4. Elegir **Open with Live Server**.
+### 4. Probar el backend
+
+En otra terminal:
+
+```bash
+curl http://localhost:3001/api/progress/demo-student
+```
+
+Respuesta esperada:
+
+```json
+{
+  "learningGoal": "",
+  "priorKnowledge": "",
+  "diagnosticNote": "",
+  "diagnosticLevel": "pendiente",
+  "sharedCount": 0,
+  "completed": {},
+  "quizScores": {},
+  "quizHistory": [],
+  "strengths": [],
+  "weaknesses": []
+}
+```
+
+### 5. Ejecutar el frontend
+
+En otra terminal:
+
+```bash
+cd ~/Descargas/IHC-Labo6-AprendeFacil
+python3 -m http.server 5500
+```
+
+Abrir en el navegador:
+
+```text
+http://localhost:5500
+```
+
+Usar `http`, no `https`.
+
+## Ejecutar en Windows 11
+
+### 1. Instalar programas necesarios
+
+Instalar:
+
+1. **Git for Windows**.
+2. **Node.js LTS**. Incluye npm.
+3. **Python 3** desde python.org o Microsoft Store.
+4. **Visual Studio Code** opcional.
+5. **Chrome o Edge** recomendado para las funciones de voz.
+
+Durante la instalación de Python, activar la opción:
+
+```text
+Add python.exe to PATH
+```
+
+Verificar en PowerShell:
+
+```powershell
+node -v
+npm -v
+py --version
+git --version
+```
+
+Si `py --version` no funciona, probar:
+
+```powershell
+python --version
+```
+
+### 2. Descargar o actualizar el proyecto
+
+Primera vez:
+
+```powershell
+git clone URL_DEL_REPOSITORIO
+cd IHC-Labo6-AprendeFacil
+```
+
+Si ya existe el proyecto:
+
+```powershell
+cd ruta\del\proyecto\IHC-Labo6-AprendeFacil
+git pull
+```
+
+### 3. Ejecutar el backend SQLite
+
+Abrir una terminal PowerShell:
+
+```powershell
+cd ruta\del\proyecto\IHC-Labo6-AprendeFacil\backend
+npm install
+npm run dev
+```
+
+Debe aparecer:
+
+```text
+Backend Aprende Fácil activo en http://localhost:3001
+```
+
+Dejar esa terminal abierta.
+
+### 4. Probar el backend en Windows
+
+En otra terminal PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:3001/api/progress/demo-student
+```
+
+También se puede usar:
+
+```powershell
+curl.exe http://localhost:3001/api/progress/demo-student
+```
+
+### 5. Ejecutar el frontend en Windows
+
+En otra terminal PowerShell:
+
+```powershell
+cd ruta\del\proyecto\IHC-Labo6-AprendeFacil
+py -m http.server 5500
+```
+
+Si `py` no funciona:
+
+```powershell
+python -m http.server 5500
+```
+
+Abrir en el navegador:
+
+```text
+http://localhost:5500
+```
+
+Usar `http`, no `https`.
+
+## Uso de la aplicación
+
+1. Abrir el frontend en `http://localhost:5500`.
+2. Verificar que el backend esté activo en `http://localhost:3001`.
+3. Seleccionar un nodo de la ruta.
+4. Revisar el panel de información.
+5. Marcar nodos como completados o resolver mini quizzes.
+6. Recargar la página para comprobar que el progreso se mantiene en SQLite.
+7. Usar el chat con API key de Gemini o en modo local simulado.
+
+## API Key de Gemini
+
+Al abrir la aplicación aparece un modal para ingresar una API key de Gemini. Si no se configura una clave, el prototipo puede seguir funcionando con respuestas locales simuladas.
+
+En esta versión académica, la clave se guarda en `localStorage` del navegador. Para una versión de producción, la clave debería manejarse desde el backend mediante variables de entorno y nunca exponerse en el frontend.
+
+No subir capturas, logs, archivos `.env` ni claves reales al repositorio.
+
+## Prueba de temperaturas del agente
+
+En el navegador, abrir DevTools con `F12`, entrar a la consola y ejecutar:
+
+```js
+await app.runTemperatureExperiment('aprendizaje-adaptativo')
+```
+
+Esto permite comparar respuestas del agente con distintas temperaturas.
+
+## Archivos que no deben subirse a GitHub
+
+Revisar que `.gitignore` incluya:
+
+```gitignore
+node_modules/
+backend/node_modules/
+.env
+backend/.env
+*.sqlite
+*.sqlite3
+backend/aprende_facil.sqlite
+```
+
+Sí deben subirse:
+
+```text
+backend/package.json
+backend/package-lock.json
+backend/server.js
+backend/db.js
+backend/schema.sql
+README.md
+index.html
+css/styles.css
+js/main.js
+js/data.js
+js/llm-client.js
+```
+
+El archivo `backend/aprende_facil.sqlite` se genera automáticamente al ejecutar el backend, por lo que no es necesario subirlo.
+
+## Problemas frecuentes
+
+### Error: Cannot find package 'express'
+
+Significa que faltan dependencias del backend. Solución:
+
+```bash
+cd backend
+npm install express cors better-sqlite3 dotenv
+npm run dev
+```
+
+### Error: Failed to connect to localhost port 3001
+
+El backend no está corriendo. Ejecutar:
+
+```bash
+cd backend
+npm run dev
+```
+
+### Error: Bad request version en el servidor Python
+
+Suele ocurrir cuando se intenta abrir `https://localhost:5500` en vez de `http://localhost:5500`.
+
+Usar:
+
+```text
+http://localhost:5500
+```
+
+### Error 404 favicon.ico
+
+No afecta al funcionamiento de la aplicación. Solo indica que no existe un ícono de pestaña configurado.
+
+### Error compilando better-sqlite3 en Ubuntu
+
+Instalar herramientas de compilación:
+
+```bash
+sudo apt install -y build-essential python3
+cd backend
+npm install
+```
+
+### Error compilando better-sqlite3 en Windows 11
+
+Normalmente `npm install` debería instalar una versión precompilada. Si falla, instalar **Visual Studio Build Tools 2022** con componentes de C++ y volver a ejecutar:
+
+```powershell
+cd backend
+npm install
+```
 
 ## API Key de Gemini
 
@@ -103,17 +449,22 @@ https://www.figma.com/design/zF6fiMKpdjCsF3Wj7RTFZV/proyecto-de-ihc?node-id=98-4
 ## Estructura del proyecto
 
 ```text
-aprende-facil-lab06-corregido/
-├── index.html
+IHC-Labo6-AprendeFacil/
+├── backend/
+│   ├── db.js
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── schema.sql
+│   └── server.js
 ├── css/
 │   └── styles.css
-├── js/
-│   ├── main.js
-│   ├── data.js
-│   └── llm-client.js
-├── screenshots/
 ├── docs/
-├── .gitignore
+│   └── NOTAS-INFORME.md
+├── index.html
+├── js/
+│   ├── data.js
+│   ├── llm-client.js
+│   └── main.js
 ├── LICENSE
 └── README.md
 ```

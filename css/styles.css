@@ -803,3 +803,34 @@ body {
         height: 480px;
     }
 }
+
+#legend {
+    width: 260px;
+}
+
+#legend-node-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.legend-node {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    color: #ccc;
+    cursor: pointer;
+    text-align: left;
+    padding: 4px 0;
+    font-size: 0.82rem;
+    font-family: inherit;
+}
+
+.legend-node:hover {
+    color: #ffffff;
+    transform: translateX(2px);
+}
