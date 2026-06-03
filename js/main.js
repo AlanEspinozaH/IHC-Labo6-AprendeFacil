@@ -1,5 +1,5 @@
 // ============================================
-// Aprende Fácil - MVP PC02: Ruta lineal + espiral exploratoria
+// Aprende Fácil - MVP PC03: Ruta lineal + Sqlite3 
 // ============================================
 
 import * as THREE from 'three';
@@ -131,6 +131,11 @@ class LearningConstellationsApp {
         this.currentTemperature = 0.5;
         this.lastAgentResponse = '';
         this.isListening = false;
+        this.currentVoiceProfile = 'tutor';
+        this.currentAudio = null;
+        this.ttsAbortController = null;
+        this.autoSpeak = false;
+        this.voiceProfiles = [];
         this.lineGuide = null;
         this.spiralGuide = null;
         this.progress = this.createEmptyProgress();
@@ -144,6 +149,7 @@ class LearningConstellationsApp {
         this.loadData();
 
         await this.loadProgressFromApi();
+        await this.loadVoiceProfilesFromApi();
 
         this.renderLegend();
         this.setupInteraction();
@@ -165,6 +171,31 @@ class LearningConstellationsApp {
             console.warn('Usando progreso local vacío por error de backend:', error);
             this.progress = this.createEmptyProgress();
         }
+    }
+
+    async loadVoiceProfilesFromApi() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/voice-profiles`);
+            if (!response.ok) throw new Error('No se pudieron cargar perfiles de voz');
+
+            this.voiceProfiles = await response.json();
+        } catch (error) {
+            console.warn('Usando perfiles VUI locales por error de backend:', error);
+            this.voiceProfiles = [];
+        }
+    }
+
+    populateVoiceProfileSelect() {
+        const select = document.getElementById('voice-profile-select');
+        if (!select || !this.voiceProfiles.length) return;
+
+        select.innerHTML = this.voiceProfiles.map(profile => `
+            <option value="${this.escapeHtml(profile.code)}">
+                ${this.escapeHtml(profile.name)}
+            </option>
+        `).join('');
+
+        select.value = this.currentVoiceProfile;
     }
 
     async saveProgress() {
@@ -839,6 +870,8 @@ class LearningConstellationsApp {
             }
         });
 
+        this.populateVoiceProfileSelect();
+
         document.getElementById('btn-speak-last').addEventListener('click', () => {
             if (!this.lastAgentResponse) {
                 this.addMessage('system', 'Todavía no hay una respuesta del agente para leer.');
@@ -847,6 +880,25 @@ class LearningConstellationsApp {
             this.speakText(this.lastAgentResponse);
         });
         document.getElementById('btn-voice-input').addEventListener('click', () => this.startVoiceInput());
+
+        document.getElementById('voice-profile-select')?.addEventListener('change', (e) => {
+            this.currentVoiceProfile = e.target.value;
+
+            const selectedLabel = e.target.options[e.target.selectedIndex].text;
+            this.addMessage('system', `Perfil VUI cambiado a: ${this.escapeHtml(selectedLabel)}.`);
+        });
+
+        document.getElementById('auto-speak-toggle')?.addEventListener('change', (e) => {
+            this.autoSpeak = e.target.checked;
+            this.addMessage(
+                'system',
+                this.autoSpeak ? 'Lectura automática activada.' : 'Lectura automática desactivada.'
+            );
+        });
+
+        document.getElementById('btn-stop-speech')?.addEventListener('click', () => {
+            this.stopSpeech();
+        });
 
         if ('speechSynthesis' in window) {
             window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
@@ -1159,6 +1211,97 @@ class LearningConstellationsApp {
         }
     }
 
+    getVoiceProfileConfig() {
+        const fromApi = this.voiceProfiles.find(
+            profile => profile.code === this.currentVoiceProfile
+        );
+
+        if (fromApi) {
+            return {
+                label: fromApi.name,
+                rate: Number(fromApi.rate || 0.92),
+                pitch: Number(fromApi.pitch || 1.0),
+                stylePrompt: `
+    PERFIL VUI:
+    - Nombre: ${fromApi.name}.
+    - Disposición: ${fromApi.willingness}.
+    - Estilo: ${fromApi.style}.
+    - Manera: ${fromApi.manner}.
+    - Ánimo: ${fromApi.mood}.
+    - Reglas: ${fromApi.prompt_rules}
+    `
+            };
+        }
+
+        const fallbackProfiles = {
+            tutor: {
+                label: 'Tutor claro',
+                rate: 0.92,
+                pitch: 1.0,
+                stylePrompt: `
+    PERFIL VUI:
+    - Personalidad cautelosa, cortés y considerada.
+    - Habla como tutor universitario.
+    - Usa frases breves y naturales.
+    - Corrige errores con respeto.
+    `
+            },
+            coach: {
+                label: 'Coach motivador',
+                rate: 0.96,
+                pitch: 1.05,
+                stylePrompt: `
+    PERFIL VUI:
+    - Personalidad cercana y motivadora.
+    - Refuerza el avance sin exagerar.
+    - Propón una acción concreta al final.
+    `
+            },
+            formal: {
+                label: 'Formal académico',
+                rate: 0.88,
+                pitch: 0.95,
+                stylePrompt: `
+    PERFIL VUI:
+    - Personalidad formal y prudente.
+    - Usa terminología correcta de IHC.
+    - Evita bromas y expresiones informales.
+    `
+            },
+            simple: {
+                label: 'Modo simple',
+                rate: 0.85,
+                pitch: 1.0,
+                stylePrompt: `
+    PERFIL VUI:
+    - Personalidad paciente y accesible.
+    - Usa oraciones cortas.
+    - Explica un solo concepto por turno.
+    `
+            }
+        };
+
+        return fallbackProfiles[this.currentVoiceProfile] || fallbackProfiles.tutor;
+    }
+
+    buildVuiSystemPrompt(agentPrompt) {
+        const profile = this.getVoiceProfileConfig();
+
+        return `
+    ${agentPrompt}
+
+    ${profile.stylePrompt}
+
+    REGLAS DE DIÁLOGO POR VOZ:
+    - Confirma brevemente lo que entendiste.
+    - Responde en máximo 4 frases.
+    - Si das pasos, usa máximo 3.
+    - No uses tablas en respuestas que serán leídas por voz.
+    - Evita markdown pesado, símbolos raros o listas largas.
+    - Cierra con una pregunta breve o una acción sugerida.
+    `;
+    }
+
     async sendChatMessage() {
         const input = document.getElementById('chat-input');
         const sendBtn = document.getElementById('chat-send');
@@ -1188,19 +1331,28 @@ class LearningConstellationsApp {
         try {
             let response;
             if (this.apiKey && this.llm) {
-                response = await this.llm.chat(text, this.currentAgent.prompt_personaje, this.currentTemperature);
+                const systemPrompt = this.buildVuiSystemPrompt(this.currentAgent.prompt_personaje);
+                response = await this.llm.chat(text, systemPrompt, this.currentTemperature);
             } else {
                 response = await this.localChatFallback(text, this.currentAgent);
             }
             document.querySelector('#chat-messages .loading')?.remove();
             this.lastAgentResponse = response;
             this.addMessage('character', response);
+
+            if (this.autoSpeak) {
+                this.speakText(response);
+            }
         } catch (error) {
             document.querySelector('#chat-messages .loading')?.remove();
             this.addMessage('error', `Error del LLM: ${error.message}. Se mostrará una respuesta local para continuar la prueba.`);
             const fallback = await this.localChatFallback(text, this.currentAgent, true);
             this.lastAgentResponse = fallback;
             this.addMessage('character', fallback);
+
+            if (this.autoSpeak) {
+                this.speakText(fallback);
+            }
         } finally {
             input.disabled = false;
             sendBtn.disabled = false;
@@ -1217,7 +1369,7 @@ class LearningConstellationsApp {
             return `${prefix}Para este nodo, prueba dos acciones: dictar una pregunta con el botón “Dictar” y luego usar “Leer” para escuchar la última respuesta. Limitación: el soporte de reconocimiento de voz depende del navegador.`;
         }
         if (lower.includes('quiz') || lower.includes('evalu')) {
-            return `${prefix}Usa “Resolver mini quiz” en el panel del nodo. El puntaje y el estado se guardan en localStorage, así que funciona sin backend ni consumo de Gemini.`;
+            return `${prefix}Usa “Resolver mini quiz” en el panel del nodo. El puntaje y el estado se guardan en SQLite mediante el backend local`;
         }
         if (lower.includes('accesibilidad') || lower.includes('baja visión')) {
             return `${prefix}La ayuda actual para baja visión se apoya en lectura en voz alta, textos breves, estados visibles y ruta lineal. En una versión futura convendría añadir modo alto contraste configurable.`;
@@ -1308,34 +1460,196 @@ class LearningConstellationsApp {
         return results;
     }
 
-    speakText(text) {
+    stopSpeech() {
+        if (this.ttsAbortController) {
+            this.ttsAbortController.abort();
+            this.ttsAbortController = null;
+        }
+
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+            this.currentAudio.currentTime = 0;
+            this.currentAudio = null;
+        }
+
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+    }
+    
+    speakTextWithBrowserFallback(text, reason = '') {
         if (!('speechSynthesis' in window)) {
-            this.addMessage('error', 'Este navegador no soporta lectura en voz alta.');
+            this.addMessage(
+                'error',
+                'ElevenLabs falló y este navegador no soporta lectura local.'
+            );
             return;
         }
-        if (!text?.trim()) {
+
+        const profile = this.getVoiceProfileConfig();
+
+        const cleanText = String(text || '')
+            .replace(/[*_#>`]/g, '')
+            .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 1200);
+
+        if (!cleanText) {
             this.addMessage('system', 'No hay texto disponible para leer.');
             return;
         }
 
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = 'es-PE';
-        utterance.rate = 0.95;
-        utterance.pitch = 1.0;
+        utterance.rate = profile.rate;
+        utterance.pitch = profile.pitch;
         utterance.volume = 1.0;
 
         const voices = window.speechSynthesis.getVoices();
+
         const preferredVoice = voices.find(voice =>
-            voice.lang.startsWith('es') && /google|microsoft|natural|neural|online|español|spanish/i.test(voice.name)
+            voice.lang.startsWith('es') &&
+            /google|microsoft|natural|neural|online|español|spanish|premium/i.test(voice.name)
         );
+
         const spanishVoice = preferredVoice || voices.find(voice => voice.lang.startsWith('es'));
+
         if (spanishVoice) {
             utterance.voice = spanishVoice;
             utterance.lang = spanishVoice.lang;
         }
-        utterance.onerror = event => this.addMessage('error', `Error de lectura en voz alta: ${event.error}`);
+
+        utterance.onstart = () => {
+            const suffix = reason ? ` Motivo: ${this.escapeHtml(reason)}.` : '';
+            this.addMessage(
+                'system',
+                `Usando lectura local del navegador como respaldo.${suffix}`
+            );
+        };
+
+        utterance.onerror = event => {
+            this.addMessage('error', `Error de lectura local: ${event.error}`);
+        };
+
         window.speechSynthesis.speak(utterance);
+    }
+
+    async speakText(text) {
+        if (!text?.trim()) {
+            this.addMessage('system', 'No hay texto disponible para leer.');
+            return;
+        }
+
+        const profile = this.getVoiceProfileConfig();
+        const speakButton = document.getElementById('btn-speak-last');
+        const backendBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+
+        const cleanText = String(text)
+            .replace(/[*_#>`]/g, '')
+            .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 1800);
+
+        this.stopSpeech();
+
+        const controller = new AbortController();
+        this.ttsAbortController = controller;
+
+        try {
+            if (speakButton) {
+                speakButton.disabled = true;
+                speakButton.textContent = '⏳ Generando...';
+            }
+
+            this.addMessage(
+                'system',
+                `Solicitando audio a ElevenLabs · perfil: ${this.escapeHtml(profile.label)}.`
+            );
+
+            const response = await fetch(`${API_BASE_URL}/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: cleanText,
+                    voiceProfileCode: this.currentVoiceProfile
+                }),
+                signal: controller.signal
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok || !payload.ok || !payload.audioUrl) {
+                const providerCode = payload.providerCode || '';
+                const message = payload.error || `Error HTTP ${response.status} al generar audio.`;
+
+                if (
+                    providerCode === 'paid_plan_required' ||
+                    message.includes('paid_plan_required') ||
+                    message.includes('Free users cannot use library voices')
+                ) {
+                    this.addMessage(
+                        'error',
+                        'ElevenLabs rechazó la voz configurada: tu plan actual no puede usar esa library voice por API.'
+                    );
+
+                    this.speakTextWithBrowserFallback(
+                        cleanText,
+                        'voz de ElevenLabs no permitida en el plan actual'
+                    );
+                    return;
+                }
+
+                throw new Error(message);
+            }
+
+            const audioSrc = new URL(payload.audioUrl, `${backendBaseUrl}/`).href;
+            const audio = new Audio(audioSrc);
+            this.currentAudio = audio;
+
+            audio.onended = () => {
+                if (this.currentAudio === audio) {
+                    this.currentAudio = null;
+                }
+            };
+
+            audio.onerror = () => {
+                this.addMessage(
+                    'error',
+                    'No se pudo reproducir el audio generado por ElevenLabs.'
+                );
+                this.speakTextWithBrowserFallback(
+                    cleanText,
+                    'falló la reproducción del audio remoto'
+                );
+            };
+
+            await audio.play();
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                this.addMessage(
+                    'error',
+                    `Error de lectura ElevenLabs: ${error.message}`
+                );
+
+                this.speakTextWithBrowserFallback(
+                    cleanText,
+                    'falló la generación remota'
+                );
+            }
+        } finally {
+            if (this.ttsAbortController === controller) {
+                this.ttsAbortController = null;
+            }
+
+            if (speakButton) {
+                speakButton.disabled = false;
+                speakButton.textContent = '🔊 Leer';
+            }
+        }
     }
 
     startVoiceInput() {

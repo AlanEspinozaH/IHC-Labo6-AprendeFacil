@@ -78,15 +78,30 @@
         </div>
         <div id="chat-messages"></div>
         <div id="chat-tools">
-           <label for="temperature-select">Temperatura:</label>
-           <select id="temperature-select" aria-label="Temperatura del agente">
-               <option value="0">0.0 Preciso</option>
-               <option value="0.5" selected>0.5 Equilibrado</option>
-               <option value="1">1.0 Creativo</option>
-               <option value="1.5">1.5 Muy creativo</option>
-           </select>
-           <button id="btn-speak-last" type="button">🔊 Leer</button>
-           <button id="btn-voice-input" type="button">🎙️ Dictar</button>
+            <label for="temperature-select">Temperatura:</label>
+            <select id="temperature-select" aria-label="Temperatura del agente">
+                <option value="0">0.0 Preciso</option>
+                <option value="0.5" selected>0.5 Equilibrado</option>
+                <option value="1">1.0 Creativo</option>
+                <option value="1.5">1.5 Muy creativo</option>
+            </select>
+
+            <label for="voice-profile-select">Perfil VUI:</label>
+            <select id="voice-profile-select" aria-label="Perfil de personalidad de voz">
+                <option value="tutor" selected>Tutor claro</option>
+                <option value="coach">Coach motivador</option>
+                <option value="formal">Formal académico</option>
+                <option value="simple">Modo simple</option>
+            </select>
+
+            <label class="voice-auto">
+                <input type="checkbox" id="auto-speak-toggle">
+                Leer automáticamente
+            </label>
+
+            <button id="btn-speak-last" type="button">🔊 Leer</button>
+            <button id="btn-voice-input" type="button">🎙️ Dictar</button>
+            <button id="btn-stop-speech" type="button">⏹️ Detener</button>
         </div>
         <div id="chat-input-area">
             <input type="text" id="chat-input" placeholder="Pregunta sobre este nodo..." aria-label="Mensaje para el agente">

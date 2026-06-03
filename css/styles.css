@@ -804,6 +804,41 @@ body {
     }
 }
 
+#voice-profile-select {
+    padding: 6px 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    color: #e0e0e0;
+    font-size: 0.8rem;
+    outline: none;
+}
+
+#voice-profile-select option {
+    background: #1a1f4b;
+    color: #e0e0e0;
+}
+
+.voice-auto {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #ccc;
+}
+
+#btn-stop-speech {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.08);
+    color: #e0e0e0;
+    cursor: pointer;
+}
+
+#btn-stop-speech:hover {
+    background: rgba(255,255,255,0.15);
+}
+
 #legend {
     width: 260px;
 }
