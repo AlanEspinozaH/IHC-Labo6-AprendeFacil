@@ -7,6 +7,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LLMClient } from './llm-client.js';
 import { learningData, MAIN_FLOW_NODE_IDS } from './data.js';
 
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+
 const CONFIG = {
     storageKey: 'aprende_facil_pc02_progress_v1',
     camera: {
@@ -140,6 +145,7 @@ class LearningConstellationsApp {
         this.lineGuide = null;
         this.spiralGuide = null;
         this.progress = this.createEmptyProgress();
+        this.currentPdfText = '';
 
         this.init();
     }
@@ -915,6 +921,18 @@ class LearningConstellationsApp {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
+
+        document.getElementById('pdf-input')?.addEventListener('change', (event) => {
+            this.handlePdfUpload(event);
+        });
+
+        document.getElementById('btn-pdf-summary')?.addEventListener('click', () => {
+            this.generateFromPdf('summary');
+        });
+
+        document.getElementById('btn-pdf-flashcards')?.addEventListener('click', () => {
+            this.generateFromPdf('flashcards');
+        });
     }
 
     setView(view, options = {}) {
@@ -1402,6 +1420,154 @@ class LearningConstellationsApp {
         messagesContainer.appendChild(msgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+
+    async handlePdfUpload(event) {
+        const file = event.target.files?.[0];
+        const status = document.getElementById('pdf-status');
+        const preview = document.getElementById('pdf-preview');
+
+        if (!file) return;
+
+        if (file.type !== 'application/pdf') {
+            status.textContent = 'Archivo no válido. Selecciona un PDF.';
+            return;
+        }
+
+        status.textContent = 'Leyendo PDF...';
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+            const pagesText = [];
+
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+                const page = await pdf.getPage(pageNumber);
+                const textContent = await page.getTextContent();
+
+                const pageText = textContent.items
+                    .map(item => item.str)
+                    .join(' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (pageText) {
+                    pagesText.push(`Página ${pageNumber}:\n${pageText}`);
+                }
+            }
+
+            const fullText = pagesText.join('\n\n').trim();
+
+            if (!fullText) {
+                this.currentPdfText = '';
+                preview.value = '';
+                status.textContent = 'No se pudo extraer texto. Probablemente es un PDF escaneado.';
+                return;
+            }
+
+            this.currentPdfText = fullText.slice(0, 12000);
+            preview.value = this.currentPdfText.slice(0, 4000);
+            status.textContent = `PDF leído: ${pdf.numPages} página(s). Texto listo para generar material.`;
+
+            this.progress.learningGoal = `Material cargado: ${file.name}`;
+            this.progress.diagnosticLevel = 'material de estudio cargado';
+            await this.saveProgress();
+            this.updateProgressUI();
+
+        } catch (error) {
+            console.error(error);
+            status.textContent = `Error al leer PDF: ${error.message}`;
+        }
+    }
+
+    async generateFromPdf(mode) {
+    const status = document.getElementById('pdf-status');
+    const preview = document.getElementById('pdf-preview');
+
+    if (!this.currentPdfText) {
+        status.textContent = 'Primero carga un PDF con texto seleccionable.';
+        return;
+    }
+
+    const taskLabel = mode === 'summary'
+        ? 'Generando resumen...'
+        : 'Generando flashcards...';
+
+    status.textContent = taskLabel;
+
+    const systemPrompt = `
+Eres un tutor educativo de Aprende Fácil.
+Convierte material de estudio en contenido pedagógico claro.
+No inventes información que no esté en el texto.
+Usa lenguaje breve para estudiantes universitarios.
+`;
+
+    const userPrompt = mode === 'summary'
+        ? `
+Genera un resumen pedagógico del siguiente material.
+Incluye:
+1. Idea central.
+2. Conceptos clave.
+3. Explicación breve.
+4. Recomendación de estudio.
+
+Material:
+${this.currentPdfText}
+`
+        : `
+Genera 5 flashcards a partir del siguiente material.
+Formato obligatorio:
+P: pregunta
+R: respuesta breve
+
+Material:
+${this.currentPdfText}
+`;
+
+    try {
+        let result;
+
+        if (this.llm && this.apiKey) {
+            result = await this.llm.chatOneShot(userPrompt, systemPrompt, 0.3);
+        } else {
+            result = this.localPdfFallback(mode);
+        }
+
+        preview.value = result;
+        status.textContent = mode === 'summary'
+            ? 'Resumen generado.'
+            : 'Flashcards generadas.';
+
+    } catch (error) {
+        console.error(error);
+        preview.value = this.localPdfFallback(mode);
+        status.textContent = 'No se pudo usar Gemini. Se generó una respuesta local básica.';
+    }
+}
+
+    localPdfFallback(mode) {
+        const text = this.currentPdfText || '';
+        const sentences = text
+            .split(/[.!?]\s+/)
+            .map(s => s.trim())
+            .filter(s => s.length > 60)
+            .slice(0, 6);
+
+        if (mode === 'summary') {
+            return [
+                'Resumen local básico:',
+                '',
+                ...sentences.map((s, i) => `${i + 1}. ${s}.`),
+                '',
+                'Nota: este resumen fue generado sin LLM, usando extracción simple del texto.'
+            ].join('\n');
+        }
+
+        return sentences.slice(0, 5).map((s, i) => {
+            return `P: ¿Qué idea importante aparece en el fragmento ${i + 1}?\nR: ${s}.`;
+        }).join('\n\n');
+    }
+    
 
     animate() {
         requestAnimationFrame(() => this.animate());

@@ -13,6 +13,7 @@
         }
     }
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs" type="module"></script>
 </head>
 <body>
     <header id="header">
@@ -147,6 +148,26 @@
     <aside id="help-panel">
         <h4>Ayuda contextual</h4>
         <p>Selecciona un nodo para ver su propósito, resolver un mini quiz, escuchar respuestas por voz o conversar con un agente. La línea guía el flujo principal; la espiral sirve para exploración.</p>
+    </aside>
+
+    <aside id="material-panel">
+        <h4>Material de estudio</h4>
+
+        <label for="pdf-input">Subir PDF:</label>
+        <input id="pdf-input" type="file" accept="application/pdf">
+
+        <div class="material-actions">
+            <button id="btn-pdf-summary" type="button">Generar resumen</button>
+            <button id="btn-pdf-flashcards" type="button">Generar flashcards</button>
+        </div>
+
+        <p id="pdf-status" class="small-note">No se ha cargado ningún PDF.</p>
+
+        <textarea 
+            id="pdf-preview" 
+            readonly 
+            placeholder="Aquí aparecerá el texto extraído del PDF..."
+            aria-label="Texto extraído del PDF"></textarea>
     </aside>
 
     <main id="canvas-container" aria-label="Visualización 3D de la ruta de aprendizaje"></main>
